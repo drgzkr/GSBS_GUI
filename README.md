@@ -12,7 +12,7 @@ statesegmentation package needs to be installed
 ## Usage
 Simply run
 ```bash
-python run run_gsbs_gui.py
+python /path/to/your/script/run_gsbs_gui.py
 ```
 on your terminal
 
