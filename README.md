@@ -18,5 +18,5 @@ ToDo:
 - [ ] add more to do's
 - [ ] Find someone who knows what they are doing for a proper version
 
-![image](https://github.com/user-attachments/assets/42bd4715-ba85-4747-82a6-9a9ba0a34b7d)
+![image](https://github.com/user-attachments/assets/74192d8d-0f8e-45fd-94a0-848ba51d13e4)
 
