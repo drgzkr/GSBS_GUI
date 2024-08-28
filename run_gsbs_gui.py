@@ -193,6 +193,9 @@ def load_gsbs_obj():
     canvas3.draw()
     canvas4.draw()
 
+# Save gsbs object
+def save_gsbs():
+    np.save(save_path_entry.get(),gsbs_object,allow_pickle=True)
 # Define a function to return the Input data
 
 def start_gsbs():
@@ -242,7 +245,7 @@ def time_correlation(ax, data, bounds):
 
     # Plot the matrix
     ax.imshow(corr)
-    ax.imshow(corr, cmap = 'viridis', interpolation='none',vmin=0,vmax=1) #changed colormap and range
+    ax.imshow(corr, cmap = 'viridis', interpolation='none',vmin=-1,vmax=1) #changed colormap and range
     #ax.set_xlabel('Timepoints')
     ax.set_ylabel('Timepoints')
 
@@ -343,6 +346,15 @@ statewise_check.place(x=300,y=35,width=120)
 
 # Run GSBS Button
 run_gsbs_button = ttk.Button(frame2, text= "Run GSBS", command= start_gsbs, style='black.TButton').place(x=450,y=35)
+
+# Save GSBS Button
+save_gsbs_button = ttk.Button(frame2, text= "Save GSBS object", command= save_gsbs, style='black.TButton').place(x=550,y=35)
+
+# save path entry widget
+save_path_entry = Entry(frame2, width= 42)
+save_path_entry.insert(0, "save_name_gsbs.npy")
+save_path_entry.place(x=660,y=35, height=25, width=150)
+
 
 # Load plot canvas
 
