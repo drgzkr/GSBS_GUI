@@ -15,6 +15,7 @@ ToDo:
 - [x] Add save gsbs object button
 - [ ] Expand input parameters
 - [ ] Fix needing to adjsut kmax when loading saved results
+- [ ] Show boundary strengths
 - [ ] add more to do's
 - [ ] Find someone who knows what they are doing for a proper version
 
