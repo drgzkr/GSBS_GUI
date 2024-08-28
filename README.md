@@ -20,6 +20,7 @@ Simply run run_gsbs_gui.py
 ![image](https://github.com/user-attachments/assets/74192d8d-0f8e-45fd-94a0-848ba51d13e4)
 
 # ToDo:
+- [ ] Fix figure scale problem for MacOs
 - [ ] Fix save gsbs object button
 - [ ] Expand input parameters
 - [ ] Fix needing to adjsut kmax when loading saved results
