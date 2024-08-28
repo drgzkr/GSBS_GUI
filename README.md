@@ -14,6 +14,7 @@ Simply run run_gsbs_gui.py
 
 - Can perform GSBS if the path of a 2d numpy array of shape (ntimepoints,nchannels) is entered with the given parameters.
 - Can also display results of a saved GSBS object.
+- Lets you explore segmentation results from the whole search, plotting boundary locations and average state patterns.
 - If you have as many images as there are timepoints in your data with 1-1 correspondance, and the images are named 'n.jpg', can show images before and after each boudnary.
 
 ![image](https://github.com/user-attachments/assets/74192d8d-0f8e-45fd-94a0-848ba51d13e4)
