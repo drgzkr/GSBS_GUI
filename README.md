@@ -6,7 +6,7 @@ A make-shift tkinter GUI for viewing results of the Greedy State Boundary Search
 Has horrible implementation, but is convenient.
 I don't know what I'm doing and have no idea how to build a proper GUI. No elegance here.
 
-Can perform GSBS if a 2d numpy array of shape (ntimepoints,nchannels) given the parameters.
+Can perform GSBS if the path of a 2d numpy array of shape (ntimepoints,nchannels) is inputted with the given the parameters.
 Can also display results of a GSBS object if saved after running.
 
 If you have as many images as there are timepoints in your data with 1-1 correspondance, and the images are named 'n.jpg', can show images before and after each boudnary.
