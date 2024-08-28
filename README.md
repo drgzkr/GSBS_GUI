@@ -4,7 +4,7 @@ A make-shift tkinter GUI for viewing results of the Greedy State Boundary Search
 [pip install statesegmentation](https://github.com/lgeerligs/statesegmentation)
 
 Has horrible implementation, but is convenient.
-I don't know what I'm doing and know have no idea how to build a proper GUI. No elegance here.
+I don't know what I'm doing and have no idea how to build a proper GUI. No elegance here.
 
 Can perform GSBS if a 2d numpy array of shape (ntimepoints,nchannels) given the parameters.
 Can also display results of a GSBS object if saved after running.
