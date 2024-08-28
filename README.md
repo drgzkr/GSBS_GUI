@@ -11,6 +11,7 @@ Can also display results of a GSBS object if saved after running.
 ToDo:
 - [ ] Implement save
 - [ ] Expand parameter inputs
+- [ ] Fix needing to adjsut kmax when loading saved results
 - [ ] add more to do's
 
 ![image](https://github.com/user-attachments/assets/07bab6d7-21a7-402a-83ba-04aa83423123)
