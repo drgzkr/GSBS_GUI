@@ -10,7 +10,9 @@ I don't know what I'm doing and have no idea how to build a proper GUI. No elega
 statesegmentation package needs to be installed
 
 ## Usage
-Simply run run_gsbs_gui.py
+Simply 
+```bash
+python run run_gsbs_gui.py
 
 - Can perform GSBS if the path of a 2d numpy array of shape (ntimepoints,nchannels) is entered with the given parameters.
 - Can also display results of a saved GSBS object.
