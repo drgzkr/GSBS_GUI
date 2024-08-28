@@ -13,6 +13,7 @@ statesegmentation package needs to be installed
 Simply 
 ```bash
 python run run_gsbs_gui.py
+```
 
 - Can perform GSBS if the path of a 2d numpy array of shape (ntimepoints,nchannels) is entered with the given parameters.
 - Can also display results of a saved GSBS object.
