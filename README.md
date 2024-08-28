@@ -8,7 +8,7 @@ I don't know what I'm doing and know have no idea how to build a proper GUI. No 
 Can perform GSBS if a 2d numpy array of shape (ntimepoints,nchannels) given the parameters.
 Can also display results of a GSBS object if saved after running.
 
-If you have 
+If you have as many images as there are timepoints in your data with 1-1 correspondance, and the images are named 'n.jpg', can show images before and after each boudnary.
 
 ToDo:
 - [ ] Add save gsbs object button
