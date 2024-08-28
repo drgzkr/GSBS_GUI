@@ -1,5 +1,5 @@
 # GSBS_GUI
-A make-shift GUI for viewing results of the GSBS algorithm from 
+A make-shift tkinter GUI for viewing results of the Greedy State Boundary Search algorithm from 
 pip install statesegmentation
 
 Has horrible implementation, but is convenient.
