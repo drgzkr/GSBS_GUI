@@ -12,7 +12,7 @@ import matplotlib.patches as patches
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg, NavigationToolbar2QT
-from PyQt6.QtCore import QObject, QThread, Qt, pyqtSignal
+from PyQt6.QtCore import QObject, QThread, QTimer, Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QPalette
 from PyQt6.QtWidgets import (
     QApplication,
@@ -93,6 +93,13 @@ class GSBSApp(QMainWindow):
         self._gsbs_running: bool            = False
         self._thread: QThread | None        = None
         self._worker: _GsbsWorker | None    = None
+        self._pending_k: int                = 0
+
+        # Debounce timer: slider/spinbox update is instant, plots refresh after idle
+        self._plot_timer = QTimer(self)
+        self._plot_timer.setSingleShot(True)
+        self._plot_timer.setInterval(150)
+        self._plot_timer.timeout.connect(self._deferred_refresh)
 
         self._build_ui()
 
@@ -122,52 +129,59 @@ class GSBSApp(QMainWindow):
         self.statusBar().showMessage("Ready.")
 
     def _build_controls(self, parent: QVBoxLayout) -> None:
-        group = QGroupBox("Controls")
-        row   = QHBoxLayout(group)
-        row.setSpacing(6)
+        group  = QGroupBox("Controls")
+        vstack = QVBoxLayout(group)
+        vstack.setSpacing(6)
 
-        # File path
-        row.addWidget(QLabel("File (.npy):"))
+        # ── Row 0: file path + load buttons ───────────────────────────
+        row0 = QHBoxLayout()
+        row0.setSpacing(6)
+
+        row0.addWidget(QLabel("File (.npy):"))
         self.path_edit = QLineEdit()
         self.path_edit.setPlaceholderText("Browse or type path…")
-        row.addWidget(self.path_edit, stretch=1)
+        row0.addWidget(self.path_edit, stretch=1)
 
-        self._btn(row, "Browse",           self._browse_data)
-        self._btn(row, "Load ROI Data",    self.load_roi_data,   primary=True)
-        self._btn(row, "Load GSBS Object", self.load_gsbs_object)
-        row.addWidget(self._vline())
+        self._btn(row0, "Browse",           self._browse_data)
+        self._btn(row0, "Load ROI Data",    self.load_roi_data)
+        self._btn(row0, "Load GSBS Object", self.load_gsbs_object)
+        vstack.addLayout(row0)
 
-        # Parameters
-        row.addWidget(QLabel("kmax:"))
+        # ── Row 1: parameters + run + save ────────────────────────────
+        row1 = QHBoxLayout()
+        row1.setSpacing(6)
+
+        row1.addWidget(QLabel("kmax:"))
         self.kmax_spin = QSpinBox()
         self.kmax_spin.setRange(1, 9999)
         self.kmax_spin.setValue(10)
-        row.addWidget(self.kmax_spin)
+        row1.addWidget(self.kmax_spin)
 
-        row.addWidget(QLabel("finetune:"))
+        row1.addWidget(QLabel("finetune:"))
         self.finetune_spin = QSpinBox()
         self.finetune_spin.setRange(0, 100)
         self.finetune_spin.setValue(1)
-        row.addWidget(self.finetune_spin)
+        row1.addWidget(self.finetune_spin)
 
         self.statewise_cb = QCheckBox("Statewise detection")
-        row.addWidget(self.statewise_cb)
+        row1.addWidget(self.statewise_cb)
 
         self.run_btn = QPushButton("Run GSBS")
         self.run_btn.setObjectName("run_btn")
         self.run_btn.clicked.connect(self.run_gsbs)
-        row.addWidget(self.run_btn)
-        row.addWidget(self._vline())
+        row1.addWidget(self.run_btn)
 
-        # Save
-        row.addWidget(QLabel("Save as:"))
+        row1.addWidget(self._vline())
+
+        row1.addWidget(QLabel("Save as:"))
         self.save_edit = QLineEdit("gsbs_result.npy")
         self.save_edit.setFixedWidth(180)
-        row.addWidget(self.save_edit)
+        row1.addWidget(self.save_edit)
 
-        self._btn(row, "Browse",           self._browse_save)
-        self._btn(row, "Save GSBS Object", self.save_gsbs_object)
+        self._btn(row1, "Browse",           self._browse_save)
+        self._btn(row1, "Save GSBS Object", self.save_gsbs_object)
 
+        vstack.addLayout(row1)
         parent.addWidget(group)
 
     def _build_run_status_row(self, parent: QVBoxLayout) -> None:
@@ -275,11 +289,8 @@ class GSBSApp(QMainWindow):
     # ── widget helpers ──────────────────────────────────────────────────
 
     @staticmethod
-    def _btn(layout: QHBoxLayout, text: str, slot,
-             primary: bool = False) -> QPushButton:
+    def _btn(layout: QHBoxLayout, text: str, slot) -> QPushButton:
         btn = QPushButton(text)
-        if primary:
-            btn.setObjectName("primary_btn")
         btn.clicked.connect(slot)
         layout.addWidget(btn)
         return btn
@@ -433,7 +444,8 @@ class GSBSApp(QMainWindow):
         self.k_spinbox.blockSignals(True)
         self.k_spinbox.setValue(value)
         self.k_spinbox.blockSignals(False)
-        self._apply_k(value)
+        self._pending_k = value
+        self._plot_timer.start()   # restarts the 150 ms countdown
 
     def _on_spinbox(self, value: int) -> None:
         if self.gsbs_object is None:
@@ -441,11 +453,14 @@ class GSBSApp(QMainWindow):
         self.k_slider.blockSignals(True)
         self.k_slider.setValue(value)
         self.k_slider.blockSignals(False)
-        self._apply_k(value)
+        self._pending_k = value
+        self._plot_timer.start()
 
-    def _apply_k(self, k: int) -> None:
+    def _deferred_refresh(self) -> None:
+        if self.gsbs_object is None:
+            return
         kmax = len(self.gsbs_object.tdists) - 1
-        k    = max(1, min(k, kmax))
+        k    = max(1, min(self._pending_k, kmax))
         self._refresh_all_plots(k)
 
     # ------------------------------------------------------------------
@@ -596,13 +611,6 @@ def _setup_dark_theme(app: QApplication) -> None:
         }}
         QPushButton#run_btn:hover  {{ background-color: #94e2d5; }}
         QPushButton#run_btn:disabled {{ background-color: {disabled.name()}; color: #1e1e2e; }}
-
-        QPushButton#primary_btn {{
-            background-color: {_ACCENT};
-            color: #1e1e2e;
-            padding: 4px 10px;
-        }}
-        QPushButton#primary_btn:hover {{ background-color: #74c7ec; }}
 
         QLabel#patience_label {{ color: {_ORANGE}; }}
 
