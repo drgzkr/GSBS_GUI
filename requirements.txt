@@ -4,3 +4,4 @@ statesegmentation
 tqdm
 scipy
 ttkbootstrap
+PyQt6
