@@ -124,7 +124,11 @@ class GSBSApp(QMainWindow):
         self._sync_corrmat_width()
 
     def _sync_corrmat_width(self) -> None:
-        """Keep the corrmat panel width ≈ its height so aspect='equal' wastes no space."""
+        """Keep the corrmat panel width ≈ its height so aspect='equal' wastes no space.
+
+        The corrmat is capped at 40 % of total width so the right panel
+        (T-dist + timeseries) always gets at least 60 % of horizontal space.
+        """
         if not hasattr(self, "_main_split"):
             return
         plot_h = self._main_split.height()
@@ -132,8 +136,8 @@ class GSBSApp(QMainWindow):
             return
         sizes = self._main_split.sizes()
         total = sum(sizes)
-        # Corrmat wants to be square; right panel needs at least 350 px to be usable
-        target_w = max(min(plot_h, total - 350), 200)
+        # Square corrmat: side = min(panel_height, 40 % of total width)
+        target_w = max(min(plot_h, int(total * 0.40)), 200)
         if abs(sizes[0] - target_w) > 5:   # avoid micro-updates
             self._main_split.setSizes([target_w, total - target_w])
 
