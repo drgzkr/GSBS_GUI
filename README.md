@@ -11,11 +11,7 @@ algorithm, which segments fMRI timeseries data into discrete neural states.
 ## Requirements
 
 - Python 3.10+
-- `tkinter` — included in the Python standard library.
-  On Ubuntu/Debian it ships as a separate system package:
-  ```bash
-  sudo apt-get install python3-tk
-  ```
+- PyQt6
 
 ---
 
@@ -52,37 +48,26 @@ pip install -r requirements.txt
 
 ## Usage
 
-Two versions are provided:
-
-| File | Framework | Theme |
-|------|-----------|-------|
-| `run_gsbs_gui.py` | Standard `tkinter` / `ttk` | System default |
-| `run_gsbs_gui_ttkbs.py` | [`ttkbootstrap`](https://ttkbootstrap.readthedocs.io/) | Darkly (Bootstrap-dark) |
+### Main GUI
 
 ```bash
-# Classic version
-python run_gsbs_gui.py
-
-# Modern dark-themed version (recommended)
-python run_gsbs_gui_ttkbs.py
+python gsbs_gui.py
+# or pass a file directly
+python gsbs_gui.py data/example_GSBS_object.npy
 ```
 
 ### Workflow
 
-1. **Browse** to a `.npy` file containing a 2D array of shape
-   `(n_timepoints, n_channels)`.
-2. Click **Load ROI Data** to load and preview the correlation matrix and
-   raw timeseries.
-3. Set **kmax**, **finetune**, and the **Statewise detection** toggle.
-4. Click **Run GSBS** — runs in a background thread; the UI stays responsive.
-5. When done, drag the **k slider** to explore all solutions from k=1 to kmax:
+1. **Browse** to a `.npy` file — either raw ROI data `(n_timepoints, n_channels)` or a
+   saved GSBS object. Click **Load File**; the type is detected automatically.
+2. Set **kmax**, **finetune**, and the **Statewise detection** toggle.
+3. Click **Run GSBS** — runs in a background thread; the UI stays responsive.
+4. When done, drag the **k slider** to explore all solutions from k=1 to kmax:
    - T-dist curve with the selected k marked
    - Correlation matrix with state boundary boxes overlaid
    - Raw voxel timeseries with boundary lines
    - State-averaged timeseries with boundary lines
-6. To skip re-running: browse to a saved `.npy` GSBS object and click
-   **Load GSBS Object**.
-7. Click **Save GSBS Object** to persist the fitted result.
+5. Click **Save GSBS Object** to persist the fitted result.
 
 ### Input data format
 
@@ -90,6 +75,40 @@ python run_gsbs_gui_ttkbs.py
 import numpy as np
 # shape: (timepoints, channels/voxels)
 data = np.load("my_roi_data.npy")   # must be 2D
+```
+
+---
+
+## Stimulus Boundary Viewer
+
+`gsbs_stimuli_viewer.py` is a companion popup for inspecting stimulus images
+at each state boundary. It expects a folder of images — one image per timepoint,
+sorted by filename.
+
+```bash
+# standalone — opens folder picker, then shows demo boundaries
+python gsbs_stimuli_viewer.py /path/to/stimuli_folder
+
+# with a GSBS object (uses best k automatically)
+python gsbs_stimuli_viewer.py /path/to/stimuli_folder data/example_GSBS_object.npy
+
+# with explicit k
+python gsbs_stimuli_viewer.py /path/to/stimuli_folder data/example_GSBS_object.npy 5
+```
+
+The viewer shows a scrollable strip of thumbnails centred on each boundary frame
+(highlighted in red), with a slider to navigate between boundaries and a
+**Context frames** spinbox to control how many frames before/after to display.
+
+It can also be imported and embedded:
+
+```python
+from gsbs_stimuli_viewer import StimuliViewer, load_stim_paths
+
+stim_paths = load_stim_paths("/path/to/stimuli_folder")
+boundaries = [47, 112, 203]   # timepoint indices
+dlg = StimuliViewer(boundaries, stim_paths, parent=self)
+dlg.exec()
 ```
 
 ---
@@ -115,47 +134,37 @@ Tests are fully headless — no display server or `xvfb` needed.
 #### With coverage report
 
 ```bash
-pytest tests/ --cov=run_gsbs_gui --cov-report=term-missing
+pytest tests/ --cov=gsbs_gui --cov-report=term-missing
 ```
 
 ### Project layout
 
 ```
-run_gsbs_gui.py          classic ttk application (GSBSApp class)
-run_gsbs_gui_ttkbs.py    modern ttkbootstrap application (dark theme)
-requirements.txt         runtime dependencies
-requirements-dev.txt     development / test dependencies
+gsbs_gui.py                  main PyQt6 application (GridSpec layout)
+gsbs_stimuli_viewer.py       standalone stimulus boundary viewer popup
+requirements.txt             runtime dependencies
+requirements-dev.txt         development / test dependencies
 assets/
-    screenshot.png       GUI screenshot
+    screenshot.png           GUI screenshot
 data/
-    example_roi_data.npy       synthetic 2D fMRI-like array (438×401)
-    example_GSBS_object.npy    pre-fitted GSBS result
+    example_roi_data.npy           synthetic 2D fMRI-like array (438×401)
+    example_GSBS_object.npy        pre-fitted GSBS result
+legacy/
+    gsbs_gui_splitter.py     earlier Qt splitter-based layout (archived)
+    gsbs_gui_tkinter.py      classic tkinter/ttk version (archived)
+    gsbs_gui_ttkbootstrap.py ttkbootstrap dark-theme version (archived)
 tests/
-    conftest.py          headless mock setup (runs before collection)
-    fixtures.py          shared fixtures and fake GSBS object factory
-    test_state_timeseries.py   _state_timeseries numpy logic
-    test_validation.py         load_roi_data / load_gsbs_object validation
-    test_gsbs_done.py          _gsbs_done / _gsbs_error thread callbacks
-    test_slider.py             slider state and _on_slider callback
+    conftest.py              headless mock setup (runs before collection)
+    fixtures.py              shared fixtures and fake GSBS object factory
+    test_state_timeseries.py _state_timeseries numpy logic
+    test_validation.py       load_roi_data / load_gsbs_object validation
+    test_gsbs_done.py        _gsbs_done / _gsbs_error thread callbacks
+    test_slider.py           slider state and _on_slider callback
 ```
-
-### CI (GitHub Actions example)
-
-```yaml
-- name: Run tests
-  run: |
-    pip install -r requirements-dev.txt
-    pytest tests/ --cov=run_gsbs_gui --cov-report=xml
-```
-
-No system `python3-tk` package is needed in CI because `conftest.py`
-intercepts the `import tkinter` statement via `sys.modules` before it
-reaches the C extension.
 
 ---
 
 ## Known limitations / TODO
 
-- Stimulus image viewer (before/after boundary frames) not yet re-implemented
-  in the reworked version.
+- Stimuli viewer not yet wired into the main GUI toolbar (run standalone for now).
 - macOS figure DPI scaling not specifically handled.
