@@ -1,9 +1,6 @@
 #!/usr/bin/env python3
 """
-GSBS GUI — GridSpec layout variant (PyQt6)
-
-Uses a single matplotlib figure with GridSpec so all subplot proportions
-are handled internally by matplotlib — no Qt layout fighting.
+GSBS GUI — Greedy State Boundary Search visualization tool (PyQt6)
 """
 
 import sys
@@ -21,6 +18,7 @@ from PyQt6.QtWidgets import (
     QApplication,
     QCheckBox,
     QFileDialog,
+    QFrame,
     QGroupBox,
     QHBoxLayout,
     QLabel,
@@ -32,6 +30,7 @@ from PyQt6.QtWidgets import (
     QSizePolicy,
     QSlider,
     QSpinBox,
+    QSplitter,
     QVBoxLayout,
     QWidget,
 )
@@ -40,11 +39,12 @@ from statesegmentation import gsbs
 
 plt.style.use("dark_background")
 
+# Catppuccin Mocha palette (matches the dark Qt palette below)
 _FIG_BG = "#1e1e2e"
-_ACCENT = "#89b4fa"
-_RED    = "#f38ba8"
-_GREEN  = "#a6e3a1"
-_ORANGE = "#fab387"
+_ACCENT = "#89b4fa"   # blue — timeseries / slider
+_RED    = "#f38ba8"   # boundaries / cursor line
+_GREEN  = "#a6e3a1"   # Run GSBS button
+_ORANGE = "#fab387"   # patience warning
 
 
 # ---------------------------------------------------------------------------
@@ -94,7 +94,9 @@ class GSBSApp(QMainWindow):
         self._thread: QThread | None        = None
         self._worker: _GsbsWorker | None    = None
         self._pending_k: int                = 0
+        self._corrmat_init_done: bool       = False
 
+        # Debounce timer: slider/spinbox update is instant, plots refresh after idle
         self._plot_timer = QTimer(self)
         self._plot_timer.setSingleShot(True)
         self._plot_timer.setInterval(150)
@@ -115,41 +117,65 @@ class GSBSApp(QMainWindow):
 
         self._build_controls(vbox)
         self._build_run_status_row(vbox)
-        self._build_solution_explorer(vbox)
-        self._build_canvas(vbox)
+        self._build_plot_area(vbox)
         self.statusBar().showMessage("Ready.")
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        if not self._corrmat_init_done:
+            self._corrmat_init_done = True
+            # Defer one tick so the splitter has its final geometry
+            QTimer.singleShot(0, self._init_corrmat_width)
+
+    def _init_corrmat_width(self) -> None:
+        """Set corrmat panel width once at startup so aspect='equal' fills it squarely.
+
+        The corrmat side is min(plot_height, 40% of total width) so the right
+        panel (T-dist + timeseries) keeps at least 60% of horizontal space.
+        After this runs the splitter is entirely user-controlled — no feedback loop.
+        """
+        plot_h = self._main_split.height()
+        total  = sum(self._main_split.sizes())
+        target_w = max(min(plot_h, int(total * 0.40)), 200)
+        self._main_split.setSizes([target_w, total - target_w])
 
     def _build_controls(self, parent: QVBoxLayout) -> None:
         group  = QGroupBox("Controls")
         vstack = QVBoxLayout(group)
         vstack.setSpacing(6)
 
-        # Row 0: file path + load
+        # ── Row 0: file path + load buttons ───────────────────────────
         row0 = QHBoxLayout()
         row0.setSpacing(6)
+
         row0.addWidget(QLabel("File (.npy):"))
         self.path_edit = QLineEdit()
         self.path_edit.setPlaceholderText("Browse or type path…")
         row0.addWidget(self.path_edit, stretch=1)
-        self._btn(row0, "Browse",    self._browse_data)
-        self._btn(row0, "Load File", self.load_file)
+
+        self._btn(row0, "Browse",     self._browse_data)
+        self._btn(row0, "Load File",  self.load_file)
         vstack.addLayout(row0)
 
-        # Row 1: parameters + run
+        # ── Row 1: parameters + run ───────────────────────────────────
         row1 = QHBoxLayout()
         row1.setSpacing(6)
+
         row1.addWidget(QLabel("kmax:"))
         self.kmax_spin = QSpinBox()
         self.kmax_spin.setRange(1, 9999)
         self.kmax_spin.setValue(10)
         row1.addWidget(self.kmax_spin)
+
         row1.addWidget(QLabel("finetune:"))
         self.finetune_spin = QSpinBox()
         self.finetune_spin.setRange(0, 100)
         self.finetune_spin.setValue(1)
         row1.addWidget(self.finetune_spin)
+
         self.statewise_cb = QCheckBox("Statewise detection")
         row1.addWidget(self.statewise_cb)
+
         self.run_btn = QPushButton("Run GSBS")
         self.run_btn.setObjectName("run_btn")
         self.run_btn.clicked.connect(self.run_gsbs)
@@ -157,34 +183,132 @@ class GSBSApp(QMainWindow):
         row1.addStretch()
         vstack.addLayout(row1)
 
-        # Row 2: save
+        # ── Row 2: save ───────────────────────────────────────────────
         row2 = QHBoxLayout()
         row2.setSpacing(6)
+
         row2.addWidget(QLabel("Save as:"))
         self.save_edit = QLineEdit("gsbs_result.npy")
         row2.addWidget(self.save_edit, stretch=1)
+
         self._btn(row2, "Browse",           self._browse_save)
         self._btn(row2, "Save GSBS Object", self.save_gsbs_object)
-        vstack.addLayout(row2)
 
+        vstack.addLayout(row2)
         parent.addWidget(group)
 
     def _build_run_status_row(self, parent: QVBoxLayout) -> None:
         self.progress = QProgressBar()
-        self.progress.setRange(0, 0)
+        self.progress.setRange(0, 0)   # indeterminate animation
         self.progress.setFixedHeight(16)
         self.progress.hide()
         parent.addWidget(self.progress)
 
         self.patience_label = QLabel(
             "\u23f3  This can take tens of minutes with large kmax or "
-            "statewise detection \u2014 please be patient.")
+            "statewise detection, please be patient.")
         self.patience_label.setWordWrap(True)
         self.patience_label.setObjectName("patience_label")
         self.patience_label.hide()
         parent.addWidget(self.patience_label)
 
-    def _build_solution_explorer(self, parent: QVBoxLayout) -> None:
+    def _build_plot_area(self, parent: QVBoxLayout) -> None:
+        """
+        Layout:
+
+          ┌──────────────┬─────────────────────────────┐
+          │              │  T-dist Curve                │
+          │  Correlation ├─────────────────────────────┤
+          │  Matrix      │  Solution Explorer           │
+          │  (square)    ├─────────────────────────────┤
+          │              │  Voxel Timeseries            │
+          │              │  State Timeseries (shared x) │
+          └──────────────┴─────────────────────────────┘
+
+        resizeEvent keeps the corrmat panel width ≈ plot area height so
+        aspect="equal" renders a perfect square with minimal wasted space.
+        """
+        self._main_split = QSplitter(Qt.Orientation.Horizontal)
+        self._main_split.setChildrenCollapsible(False)
+        parent.addWidget(self._main_split, stretch=1)
+
+        # ── Left: Correlation Matrix (full height) ─────────────────────
+        self._build_corrmat_panel(self._main_split)
+
+        # ── Right: T-dist → Solution Explorer → Timeseries ────────────
+        right = QSplitter(Qt.Orientation.Vertical)
+        right.setChildrenCollapsible(False)
+        self._build_tdist_panel(right)
+        self._build_solution_explorer(right)
+        self._build_timeseries_panel(right)
+        right.setStretchFactor(0, 2)   # T-dist
+        right.setStretchFactor(1, 0)   # Solution explorer: natural height
+        right.setStretchFactor(2, 3)   # Timeseries
+
+        self._main_split.addWidget(right)
+
+    def _build_corrmat_panel(self, splitter: QSplitter) -> None:
+        frame  = QWidget()
+        layout = QVBoxLayout(frame)
+        layout.setContentsMargins(2, 2, 2, 2)
+
+        self.fig_corrmat, self.ax_corrmat = plt.subplots(
+            constrained_layout=True, figsize=(3, 3))
+        self.fig_corrmat.patch.set_facecolor(_FIG_BG)
+        self.ax_corrmat.set_facecolor(_FIG_BG)
+        self.fig_corrmat.suptitle("Correlation Matrix", fontsize=9)
+
+        self.canvas_corrmat = FigureCanvasQTAgg(self.fig_corrmat)
+        self.canvas_corrmat.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.canvas_corrmat.setMinimumSize(1, 1)
+        layout.addWidget(self.canvas_corrmat, stretch=1)
+        layout.addWidget(NavigationToolbar2QT(self.canvas_corrmat, frame))
+        splitter.addWidget(frame)
+
+    def _build_tdist_panel(self, splitter: QSplitter) -> None:
+        frame  = QWidget()
+        layout = QVBoxLayout(frame)
+        layout.setContentsMargins(2, 2, 2, 2)
+
+        self.fig_tdist, self.ax_tdist = plt.subplots(constrained_layout=True, figsize=(4, 2))
+        self.fig_tdist.patch.set_facecolor(_FIG_BG)
+        self.ax_tdist.set_facecolor(_FIG_BG)
+        self.fig_tdist.suptitle("T-dist Curve", fontsize=9)
+
+        self.canvas_tdist = FigureCanvasQTAgg(self.fig_tdist)
+        self.canvas_tdist.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.canvas_tdist.setMinimumSize(1, 1)
+        layout.addWidget(self.canvas_tdist, stretch=1)
+        layout.addWidget(NavigationToolbar2QT(self.canvas_tdist, frame))
+        splitter.addWidget(frame)
+
+    def _build_timeseries_panel(self, splitter: QSplitter) -> None:
+        frame  = QWidget()
+        layout = QVBoxLayout(frame)
+        layout.setContentsMargins(2, 2, 2, 2)
+
+        self.fig_ts, (self.ax_raw, self.ax_state) = plt.subplots(
+            2, 1, sharex=True, constrained_layout=True, figsize=(4, 3))
+        self.fig_ts.patch.set_facecolor(_FIG_BG)
+        for ax in (self.ax_raw, self.ax_state):
+            ax.set_facecolor(_FIG_BG)
+        self.ax_raw.set_title("Voxel Timeseries", fontsize=9)
+        self.ax_raw.set_ylabel("Channels")
+        self.ax_state.set_title("State Activity Timeseries", fontsize=9)
+        self.ax_state.set_ylabel("Channels")
+        self.ax_state.set_xlabel("Timepoints")
+
+        self.canvas_ts = FigureCanvasQTAgg(self.fig_ts)
+        self.canvas_ts.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.canvas_ts.setMinimumSize(1, 1)
+        layout.addWidget(self.canvas_ts, stretch=1)
+        layout.addWidget(NavigationToolbar2QT(self.canvas_ts, frame))
+        splitter.addWidget(frame)
+
+    def _build_solution_explorer(self, parent: QSplitter) -> None:
         group = QGroupBox("Solution Explorer")
         row   = QHBoxLayout(group)
 
@@ -204,49 +328,6 @@ class GSBSApp(QMainWindow):
 
         parent.addWidget(group)
 
-    def _build_canvas(self, parent: QVBoxLayout) -> None:
-        """Single figure, GridSpec — matplotlib owns all layout proportions.
-
-          ┌──────────────┬──────────────────────────┐
-          │              │  T-dist Curve             │
-          │  Correlation ├──────────────────────────┤
-          │  Matrix      │  Voxel Timeseries         │
-          │  (square)    ├──────────────────────────┤
-          │              │  State Activity Timeseries│
-          └──────────────┴──────────────────────────┘
-        """
-        self.fig = plt.figure(constrained_layout=True)
-        self.fig.patch.set_facecolor(_FIG_BG)
-
-        gs = self.fig.add_gridspec(
-            3, 2,
-            width_ratios=[1, 1.8],
-            height_ratios=[2, 1.5, 1.5],
-        )
-
-        self.ax_corrmat = self.fig.add_subplot(gs[:, 0])
-        self.ax_tdist   = self.fig.add_subplot(gs[0, 1])
-        self.ax_raw     = self.fig.add_subplot(gs[1, 1])
-        self.ax_state   = self.fig.add_subplot(gs[2, 1], sharex=self.ax_raw)
-
-        for ax in (self.ax_corrmat, self.ax_tdist, self.ax_raw, self.ax_state):
-            ax.set_facecolor(_FIG_BG)
-
-        self.ax_corrmat.set_title("Correlation Matrix", fontsize=9)
-        self.ax_tdist.set_title("T-dist Curve", fontsize=9)
-        self.ax_raw.set_title("Voxel Timeseries", fontsize=9)
-        self.ax_raw.set_ylabel("Channels")
-        self.ax_state.set_title("State Activity Timeseries", fontsize=9)
-        self.ax_state.set_ylabel("Channels")
-        self.ax_state.set_xlabel("Timepoints")
-
-        self.canvas = FigureCanvasQTAgg(self.fig)
-        self.canvas.setSizePolicy(
-            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-
-        parent.addWidget(self.canvas, stretch=1)
-        parent.addWidget(NavigationToolbar2QT(self.canvas, self))
-
     # ── widget helpers ──────────────────────────────────────────────────
 
     @staticmethod
@@ -255,6 +336,13 @@ class GSBSApp(QMainWindow):
         btn.clicked.connect(slot)
         layout.addWidget(btn)
         return btn
+
+    @staticmethod
+    def _vline() -> QFrame:
+        f = QFrame()
+        f.setFrameShape(QFrame.Shape.VLine)
+        f.setFrameShadow(QFrame.Shadow.Sunken)
+        return f
 
     # ------------------------------------------------------------------
     # File dialogs
@@ -279,7 +367,7 @@ class GSBSApp(QMainWindow):
     # ------------------------------------------------------------------
 
     def load_file(self) -> None:
-        """Load a .npy file — auto-detects GSBS object vs raw ROI data."""
+        """Load a .npy file and auto-detect whether it is a GSBS object or raw ROI data."""
         path = self.path_edit.text().strip()
         if not path:
             QMessageBox.warning(self, "No path", "Enter or browse to a .npy file first.")
@@ -287,12 +375,13 @@ class GSBSApp(QMainWindow):
         try:
             raw = np.load(path, allow_pickle=True)
 
+            # ── Try GSBS object first ──────────────────────────────────
             try:
                 obj = raw.item()
                 if hasattr(obj, "tdists") and hasattr(obj, "all_bounds"):
-                    self.gsbs_object = obj
-                    self.roi_data    = obj.x
-                    self._corr_cache = np.corrcoef(obj.x)
+                    self.gsbs_object  = obj
+                    self.roi_data     = obj.x
+                    self._corr_cache  = np.corrcoef(obj.x)
                     kmax   = len(obj.tdists) - 1
                     best_k = int(np.argmax(obj.tdists))
                     self.kmax_spin.setValue(kmax)
@@ -303,6 +392,7 @@ class GSBSApp(QMainWindow):
             except (ValueError, AttributeError):
                 pass
 
+            # ── Fall back to raw ROI data ──────────────────────────────
             if raw.ndim != 2:
                 raise ValueError(f"Expected 2D array, got shape {raw.shape}")
             self.roi_data    = raw
@@ -337,6 +427,7 @@ class GSBSApp(QMainWindow):
         if self.roi_data is None:
             QMessageBox.warning(self, "No data", "Load ROI data first.")
             return
+
         self._gsbs_running = True
         self.run_btn.setEnabled(False)
         self.progress.show()
@@ -360,12 +451,13 @@ class GSBSApp(QMainWindow):
         self._thread.start()
 
     def _gsbs_done(self, obj) -> None:
-        self.gsbs_object   = obj
-        self._gsbs_running = False
-        self._corr_cache   = np.corrcoef(obj.x)
+        self.gsbs_object     = obj
+        self._gsbs_running   = False
+        self._corr_cache     = np.corrcoef(obj.x)
         self.progress.hide()
         self.patience_label.hide()
         self.run_btn.setEnabled(True)
+
         kmax   = len(obj.tdists) - 1
         best_k = int(np.argmax(obj.tdists))
         self._configure_slider(kmax, best_k)
@@ -399,7 +491,7 @@ class GSBSApp(QMainWindow):
         self.k_spinbox.setValue(value)
         self.k_spinbox.blockSignals(False)
         self._pending_k = value
-        self._plot_timer.start()
+        self._plot_timer.start()   # restarts the 150 ms countdown
 
     def _on_spinbox(self, value: int) -> None:
         if self.gsbs_object is None:
@@ -424,38 +516,42 @@ class GSBSApp(QMainWindow):
     def _clear_all_plots(self) -> None:
         for ax in (self.ax_corrmat, self.ax_tdist, self.ax_raw, self.ax_state):
             ax.clear()
-        self.canvas.draw()
+        for canvas in (self.canvas_corrmat, self.canvas_tdist, self.canvas_ts):
+            canvas.draw()
 
     def _plot_roi_data(self) -> None:
         data = self.roi_data
+        self.ax_raw.clear()
+        self.ax_raw.imshow(data.T, aspect="equal", origin="lower")
+        self.ax_raw.set_ylabel("Channels")
+        self.ax_raw.set_title("Voxel Timeseries", fontsize=9)
+        self.canvas_ts.draw()
+
         self.ax_corrmat.clear()
         self.ax_corrmat.imshow(np.corrcoef(data), cmap="viridis",
                                vmin=-1, vmax=1, aspect="equal")
-        self.ax_corrmat.set_title("Correlation Matrix", fontsize=9)
-        self.ax_raw.clear()
-        self.ax_raw.imshow(data.T, aspect="auto", origin="lower")
-        self.ax_raw.set_ylabel("Channels")
-        self.ax_raw.set_title("Voxel Timeseries", fontsize=9)
-        self.canvas.draw()
+        self.ax_corrmat.set_ylabel("Timepoints")
+        self.canvas_corrmat.draw()
 
     def _refresh_all_plots(self, k: int) -> None:
         obj    = self.gsbs_object
         bounds = np.where(obj.all_bounds[k] > 0)[0]
         n_time = obj.x.shape[0]
 
+        # T-dist curve
         self.ax_tdist.clear()
         self.ax_tdist.plot(obj.tdists, color=_ACCENT)
         self.ax_tdist.axvline(x=k, color=_RED, linestyle="--",
                               linewidth=1.2, label=f"k = {k}")
         self.ax_tdist.set_xlabel("k (boundaries)")
         self.ax_tdist.set_ylabel("T-dist")
-        self.ax_tdist.set_title("T-dist Curve", fontsize=9)
         self.ax_tdist.legend(fontsize=8)
 
+        # Correlation matrix with state boundary boxes
         self.ax_corrmat.clear()
         self.ax_corrmat.imshow(self._corr_cache, cmap="viridis",
                                vmin=-1, vmax=1, aspect="equal")
-        self.ax_corrmat.set_title("Correlation Matrix", fontsize=9)
+        self.ax_corrmat.set_ylabel("Timepoints")
         edges = np.concatenate(([0], bounds, [n_time]))
         for i in range(len(edges) - 1):
             x0, x1 = edges[i], edges[i + 1]
@@ -463,29 +559,33 @@ class GSBSApp(QMainWindow):
                 (x0, x0), x1 - x0, x1 - x0,
                 linewidth=1.5, edgecolor=_RED, facecolor="none"))
 
+        # Raw timeseries
         self.ax_raw.clear()
-        self.ax_raw.imshow(obj.x.T, aspect="auto", origin="lower")
+        self.ax_raw.imshow(obj.x.T, aspect="equal", origin="lower")
         self.ax_raw.set_ylabel("Channels")
         self.ax_raw.set_title("Voxel Timeseries", fontsize=9)
         for b in bounds:
             self.ax_raw.axvline(x=b, color=_RED, linewidth=0.8)
 
+        # State-averaged timeseries
         self.ax_state.clear()
         self.ax_state.imshow(self._state_timeseries(k).T,
-                             aspect="auto", origin="lower")
+                             aspect="equal", origin="lower")
         self.ax_state.set_ylabel("Channels")
         self.ax_state.set_xlabel("Timepoints")
         self.ax_state.set_title("State Activity Timeseries", fontsize=9)
         for b in bounds:
             self.ax_state.axvline(x=b, color=_RED, linewidth=0.8)
 
-        self.canvas.draw()
+        for canvas in (self.canvas_corrmat, self.canvas_tdist, self.canvas_ts):
+            canvas.draw()
 
     def _state_timeseries(self, k: int) -> np.ndarray:
         obj      = self.gsbs_object
         patterns = obj.get_state_patterns(k=k)
         bounds   = np.where(obj.all_bounds[k] > 0)[0]
         n_time   = obj.x.shape[0]
+
         state_ts = np.empty_like(obj.x)
         edges    = np.concatenate(([0], bounds, [n_time]))
         for i, pattern in enumerate(patterns):
@@ -512,6 +612,10 @@ class GSBSApp(QMainWindow):
                 self._thread.wait(2000)
         plt.close("all")
         event.accept()
+
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
 
     def _status(self, msg: str) -> None:
         self.statusBar().showMessage(msg)
@@ -557,8 +661,8 @@ def _setup_dark_theme(app: QApplication) -> None:
             font-weight: bold;
             padding: 4px 10px;
         }}
-        QPushButton#run_btn:hover     {{ background-color: #94e2d5; }}
-        QPushButton#run_btn:disabled  {{ background-color: {disabled.name()}; color: #1e1e2e; }}
+        QPushButton#run_btn:hover  {{ background-color: #94e2d5; }}
+        QPushButton#run_btn:disabled {{ background-color: {disabled.name()}; color: #1e1e2e; }}
 
         QLabel#patience_label {{ color: {_ORANGE}; }}
 
@@ -576,6 +680,7 @@ def main() -> None:
     _setup_dark_theme(app)
     window = GSBSApp()
     window.show()
+    # Optional: pass a file path as the first CLI argument to auto-load on startup
     if len(sys.argv) > 1:
         window.path_edit.setText(sys.argv[1])
         QTimer.singleShot(200, window.load_file)
