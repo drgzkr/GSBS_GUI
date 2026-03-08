@@ -94,6 +94,7 @@ class GSBSApp(QMainWindow):
         self._thread: QThread | None        = None
         self._worker: _GsbsWorker | None    = None
         self._pending_k: int                = 0
+        self._corrmat_init_done: bool       = False
 
         # Debounce timer: slider/spinbox update is instant, plots refresh after idle
         self._plot_timer = QTimer(self)
@@ -119,27 +120,24 @@ class GSBSApp(QMainWindow):
         self._build_plot_area(vbox)
         self.statusBar().showMessage("Ready.")
 
-    def resizeEvent(self, event) -> None:
-        super().resizeEvent(event)
-        self._sync_corrmat_width()
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        if not self._corrmat_init_done:
+            self._corrmat_init_done = True
+            # Defer one tick so the splitter has its final geometry
+            QTimer.singleShot(0, self._init_corrmat_width)
 
-    def _sync_corrmat_width(self) -> None:
-        """Keep the corrmat panel width ≈ its height so aspect='equal' wastes no space.
+    def _init_corrmat_width(self) -> None:
+        """Set corrmat panel width once at startup so aspect='equal' fills it squarely.
 
-        The corrmat is capped at 40 % of total width so the right panel
-        (T-dist + timeseries) always gets at least 60 % of horizontal space.
+        The corrmat side is min(plot_height, 40% of total width) so the right
+        panel (T-dist + timeseries) keeps at least 60% of horizontal space.
+        After this runs the splitter is entirely user-controlled — no feedback loop.
         """
-        if not hasattr(self, "_main_split"):
-            return
         plot_h = self._main_split.height()
-        if plot_h < 50:
-            return
-        sizes = self._main_split.sizes()
-        total = sum(sizes)
-        # Square corrmat: side = min(panel_height, 40 % of total width)
+        total  = sum(self._main_split.sizes())
         target_w = max(min(plot_h, int(total * 0.40)), 200)
-        if abs(sizes[0] - target_w) > 5:   # avoid micro-updates
-            self._main_split.setSizes([target_w, total - target_w])
+        self._main_split.setSizes([target_w, total - target_w])
 
     def _build_controls(self, parent: QVBoxLayout) -> None:
         group  = QGroupBox("Controls")
