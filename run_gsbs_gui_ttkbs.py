@@ -1,32 +1,39 @@
 #!/usr/bin/env python3
 """
-GSBS GUI - Greedy State Boundary Search visualization tool
+GSBS GUI - Greedy State Boundary Search visualization tool (ttkbootstrap)
 """
 
 import threading
 import tkinter as tk
-from tkinter import ttk, filedialog, messagebox
+from tkinter import filedialog, messagebox
 
 import matplotlib
 matplotlib.use("TkAgg")
 import matplotlib.patches as patches
 import matplotlib.pyplot as plt
 import numpy as np
+import ttkbootstrap as ttk
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 
 from statesegmentation import gsbs
 
+plt.style.use("dark_background")
+_FIG_COLOR = "#222222"   # matches ttkbootstrap darkly window bg
+
 
 class GSBSApp:
-    def __init__(self, root: tk.Tk) -> None:
+    def __init__(self, root: ttk.Window) -> None:
         self.root = root
         self.root.title("GSBS GUI")
         self.root.minsize(1100, 820)
 
         self.roi_data: np.ndarray | None = None
         self.gsbs_object = None
+        self._corr_cache: np.ndarray | None = None   # cached to avoid recompute on slider
+        self._gsbs_running: bool = False
 
         self._build_ui()
+        self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
     # ------------------------------------------------------------------
     # UI construction
@@ -40,8 +47,8 @@ class GSBSApp:
         self._build_statusbar()
 
     def _build_controls(self) -> None:
-        ctrl = ttk.LabelFrame(self.root, text="Controls", padding=6)
-        ctrl.grid(row=0, column=0, sticky="ew", padx=8, pady=(8, 4))
+        ctrl = ttk.LabelFrame(self.root, text="Controls")
+        ctrl.grid(row=0, column=0, sticky="ew", padx=8, pady=(8, 4), ipadx=6, ipady=4)
         ctrl.columnconfigure(1, weight=1)
 
         # Row 0 — file path + load buttons
@@ -49,16 +56,16 @@ class GSBSApp:
         self.data_path_var = tk.StringVar()
         ttk.Entry(ctrl, textvariable=self.data_path_var).grid(
             row=0, column=1, sticky="ew", padx=4)
-        ttk.Button(ctrl, text="Browse", command=self._browse_data).grid(
-            row=0, column=2, padx=2)
-        ttk.Button(ctrl, text="Load ROI Data", command=self.load_roi_data).grid(
-            row=0, column=3, padx=2)
-        ttk.Button(ctrl, text="Load GSBS Object", command=self.load_gsbs_object).grid(
-            row=0, column=4, padx=2)
+        ttk.Button(ctrl, text="Browse", command=self._browse_data,
+                   bootstyle="secondary").grid(row=0, column=2, padx=2)
+        ttk.Button(ctrl, text="Load ROI Data", command=self.load_roi_data,
+                   bootstyle="primary").grid(row=0, column=3, padx=2)
+        ttk.Button(ctrl, text="Load GSBS Object", command=self.load_gsbs_object,
+                   bootstyle="info").grid(row=0, column=4, padx=2)
 
         # Row 1 — parameters + run/save
         pf = ttk.Frame(ctrl)
-        pf.grid(row=1, column=0, columnspan=5, sticky="ew", pady=(6, 0))
+        pf.grid(row=1, column=0, columnspan=5, sticky="ew", pady=(8, 0))
 
         ttk.Label(pf, text="kmax:").pack(side="left")
         self.kmax_var = tk.IntVar(value=10)
@@ -72,9 +79,11 @@ class GSBSApp:
 
         self.statewise_var = tk.BooleanVar(value=False)
         ttk.Checkbutton(pf, text="Statewise detection",
-                        variable=self.statewise_var).pack(side="left", padx=(0, 12))
+                        variable=self.statewise_var,
+                        bootstyle="round-toggle").pack(side="left", padx=(0, 12))
 
-        self.run_btn = ttk.Button(pf, text="Run GSBS", command=self.run_gsbs)
+        self.run_btn = ttk.Button(pf, text="Run GSBS", command=self.run_gsbs,
+                                  bootstyle="success")
         self.run_btn.pack(side="left", padx=(0, 12))
 
         ttk.Separator(pf, orient="vertical").pack(side="left", fill="y", padx=8)
@@ -83,51 +92,86 @@ class GSBSApp:
         self.save_path_var = tk.StringVar(value="gsbs_result.npy")
         ttk.Entry(pf, textvariable=self.save_path_var, width=22).pack(
             side="left", padx=(2, 4))
-        ttk.Button(pf, text="Browse", command=self._browse_save).pack(
-            side="left", padx=2)
-        ttk.Button(pf, text="Save GSBS Object",
-                   command=self.save_gsbs_object).pack(side="left", padx=2)
+        ttk.Button(pf, text="Browse", command=self._browse_save,
+                   bootstyle="secondary").pack(side="left", padx=2)
+        ttk.Button(pf, text="Save GSBS Object", command=self.save_gsbs_object,
+                   bootstyle="secondary").pack(side="left", padx=2)
 
-        # Row 2 — progress bar (hidden until running)
-        self.progress = ttk.Progressbar(ctrl, mode="indeterminate")
-        self.progress.grid(row=2, column=0, columnspan=5, sticky="ew", pady=(4, 0))
+        # Row 2 — progress bar + patience label (hidden until running)
+        self.progress = ttk.Progressbar(ctrl, mode="indeterminate",
+                                        bootstyle="success-striped")
+        self.progress.grid(row=2, column=0, columnspan=4, sticky="ew", pady=(6, 0))
         self.progress.grid_remove()
+
+        self.patience_label = ttk.Label(
+            ctrl,
+            text="⏳ This can take tens of minutes with large kmax or statewise detection, please be patient.",
+            bootstyle="warning", justify="left")
+        self.patience_label.bind(
+            "<Configure>",
+            lambda e: self.patience_label.config(wraplength=e.width))
+        self.patience_label.grid(row=3, column=0, columnspan=5, sticky="w", pady=(2, 0))
+        self.patience_label.grid_remove()
 
     def _build_plots(self) -> None:
         pa = ttk.Frame(self.root)
         pa.grid(row=1, column=0, sticky="nsew", padx=8, pady=4)
-        pa.columnconfigure((0, 1), weight=1)
-        pa.rowconfigure((0, 1), weight=1)
+        pa.columnconfigure(0, weight=1)
+        pa.columnconfigure(1, weight=1)
+        pa.rowconfigure(0, weight=1)
 
+        # Left column: Correlation Matrix — fills full height
         self.fig_corrmat, self.ax_corrmat, self.canvas_corrmat = \
             self._make_plot_cell(pa, 0, 0, "Correlation Matrix")
-        self.fig_tdist, self.ax_tdist, self.canvas_tdist = \
-            self._make_plot_cell(pa, 0, 1, "T-dist Curve")
-        self.fig_raw, self.ax_raw, self.canvas_raw = \
-            self._make_plot_cell(pa, 1, 0, "Voxel Timeseries")
-        self.fig_state, self.ax_state, self.canvas_state = \
-            self._make_plot_cell(pa, 1, 1, "State Activity Timeseries")
 
-        # Solution explorer slider
-        sf = ttk.LabelFrame(self.root, text="Solution Explorer  (drag to change k)",
-                            padding=4)
-        sf.grid(row=2, column=0, sticky="ew", padx=8, pady=4)
+        # Right column: T-dist → Solution Explorer → stacked Timeseries
+        right = ttk.Frame(pa)
+        right.grid(row=0, column=1, sticky="nsew")
+        right.columnconfigure(0, weight=1)
+        right.rowconfigure(0, weight=3)   # T-dist: larger share
+        right.rowconfigure(1, weight=0)   # Solution Explorer: natural height
+        right.rowconfigure(2, weight=2)   # Timeseries: slightly smaller share
+
+        self.fig_tdist, self.ax_tdist, self.canvas_tdist = \
+            self._make_plot_cell(right, 0, 0, "T-dist Curve")
+
+        self._build_solution_explorer(right, row=1)
+
+        # Timeseries: single figure, two subplots sharing x-axis
+        self.fig_ts, self.ax_raw, self.ax_state, self.canvas_ts = \
+            self._make_timeseries_cell(right, 2, 0)
+
+    def _build_solution_explorer(self, parent, row: int) -> None:
+        sf = ttk.LabelFrame(parent, text="Solution Explorer")
+        sf.grid(row=row, column=0, sticky="ew", padx=4, pady=4, ipadx=4, ipady=6)
         sf.columnconfigure(0, weight=1)
 
         self.k_var = tk.IntVar(value=0)
-        self.k_slider = ttk.Scale(sf, from_=0, to=1, orient="horizontal",
-                                  variable=self.k_var, command=self._on_slider)
-        self.k_slider.grid(row=0, column=0, sticky="ew", padx=4)
-        self.k_label = ttk.Label(sf, text="k = —", width=8)
-        self.k_label.grid(row=0, column=1, padx=8)
 
-    def _make_plot_cell(self, parent, row, col, title):
-        frame = ttk.Frame(parent, relief="sunken", borderwidth=1)
+        self.k_slider = ttk.Scale(sf, from_=0, to=1, orient="horizontal",
+                                  variable=self.k_var, command=self._on_slider,
+                                  bootstyle="info")
+        self.k_slider.grid(row=0, column=0, sticky="ew", padx=(4, 4))
+
+        self.k_spinbox = ttk.Spinbox(sf, from_=0, to=1, textvariable=self.k_var,
+                                     width=5, command=self._on_k_spinbox,
+                                     bootstyle="info")
+        self.k_spinbox.bind("<Return>", self._on_k_spinbox)
+        self.k_spinbox.bind("<FocusOut>", self._on_k_spinbox)
+        self.k_spinbox.grid(row=0, column=1, padx=(0, 8))
+
+        self.best_k_label = ttk.Label(sf, text="Best k: —", bootstyle="info")
+        self.best_k_label.grid(row=0, column=2, padx=(0, 4))
+
+    def _make_plot_cell(self, parent, row, col, title, figsize=None):
+        frame = ttk.Frame(parent, padding=2)
         frame.grid(row=row, column=col, sticky="nsew", padx=4, pady=4)
         frame.rowconfigure(0, weight=1)
         frame.columnconfigure(0, weight=1)
 
-        fig, ax = plt.subplots(tight_layout=True)
+        fig, ax = plt.subplots(tight_layout=True, figsize=figsize)
+        fig.patch.set_facecolor(_FIG_COLOR)
+        ax.set_facecolor(_FIG_COLOR)
         fig.suptitle(title, fontsize=9)
 
         canvas = FigureCanvasTkAgg(fig, frame)
@@ -139,11 +183,38 @@ class GSBSApp:
 
         return fig, ax, canvas
 
+    def _make_timeseries_cell(self, parent, row, col):
+        frame = ttk.Frame(parent, padding=2)
+        frame.grid(row=row, column=col, sticky="nsew", padx=4, pady=4)
+        frame.rowconfigure(0, weight=1)
+        frame.columnconfigure(0, weight=1)
+
+        fig, (ax_raw, ax_state) = plt.subplots(
+            2, 1, sharex=True, tight_layout=True, figsize=(6, 4))
+        fig.patch.set_facecolor(_FIG_COLOR)
+        for ax in (ax_raw, ax_state):
+            ax.set_facecolor(_FIG_COLOR)
+
+        ax_raw.set_ylabel("Channels")
+        ax_raw.set_title("Voxel Timeseries", fontsize=9)
+        ax_state.set_ylabel("Channels")
+        ax_state.set_xlabel("Timepoints")
+        ax_state.set_title("State Activity Timeseries", fontsize=9)
+
+        canvas = FigureCanvasTkAgg(fig, frame)
+        canvas.get_tk_widget().grid(row=0, column=0, sticky="nsew")
+
+        toolbar_frame = ttk.Frame(frame)
+        toolbar_frame.grid(row=1, column=0, sticky="ew")
+        NavigationToolbar2Tk(canvas, toolbar_frame)
+
+        return fig, ax_raw, ax_state, canvas
+
     def _build_statusbar(self) -> None:
         self.status_var = tk.StringVar(value="Ready.")
         ttk.Label(self.root, textvariable=self.status_var,
-                  relief="sunken", anchor="w", padding=(4, 2)
-                  ).grid(row=3, column=0, sticky="ew")
+                  anchor="w", bootstyle="inverse-secondary"
+                  ).grid(row=3, column=0, sticky="ew", ipady=3, ipadx=6)
 
     # ------------------------------------------------------------------
     # File dialogs
@@ -193,6 +264,7 @@ class GSBSApp:
             if not hasattr(obj, "tdists") or not hasattr(obj, "all_bounds"):
                 raise ValueError("File does not look like a GSBS object.")
             self.gsbs_object = obj
+            self._corr_cache = np.corrcoef(obj.x)
             kmax = len(obj.tdists) - 1
             self.kmax_var.set(kmax)
             best_k = int(np.argmax(obj.tdists))
@@ -230,9 +302,11 @@ class GSBSApp:
         statewise = self.statewise_var.get()
         data = self.roi_data
 
+        self._gsbs_running = True
         self.run_btn.config(state="disabled")
         self.progress.grid()
         self.progress.start(10)
+        self.patience_label.grid()
         self._status("Running GSBS…")
 
         def _worker() -> None:
@@ -249,8 +323,11 @@ class GSBSApp:
 
     def _gsbs_done(self, obj) -> None:
         self.gsbs_object = obj
+        self._gsbs_running = False
+        self._corr_cache = np.corrcoef(obj.x)
         self.progress.stop()
         self.progress.grid_remove()
+        self.patience_label.grid_remove()
         self.run_btn.config(state="normal")
 
         kmax = len(obj.tdists) - 1
@@ -260,26 +337,41 @@ class GSBSApp:
         self._refresh_all_plots(best_k)
 
     def _gsbs_error(self, msg: str) -> None:
+        self._gsbs_running = False
         self.progress.stop()
         self.progress.grid_remove()
+        self.patience_label.grid_remove()
         self.run_btn.config(state="normal")
         messagebox.showerror("GSBS error", msg)
         self._status("GSBS failed.")
 
     # ------------------------------------------------------------------
-    # Slider
+    # Slider / k control
     # ------------------------------------------------------------------
 
     def _configure_slider(self, kmax: int, value: int) -> None:
         self.k_slider.config(from_=1, to=kmax)
+        self.k_spinbox.config(from_=1, to=kmax)
         self.k_var.set(value)
-        self.k_label.config(text=f"k = {value}")
+        self.best_k_label.config(text=f"Best k: {value}")
 
     def _on_slider(self, _=None) -> None:
         if self.gsbs_object is None:
             return
-        k = int(round(self.k_var.get()))
-        self.k_label.config(text=f"k = {k}")
+        self._apply_k(int(round(self.k_var.get())))
+
+    def _on_k_spinbox(self, _=None) -> None:
+        if self.gsbs_object is None:
+            return
+        try:
+            self._apply_k(int(self.k_var.get()))
+        except (ValueError, tk.TclError):
+            pass
+
+    def _apply_k(self, k: int) -> None:
+        kmax = len(self.gsbs_object.tdists) - 1
+        k = max(1, min(k, kmax))
+        self.k_var.set(k)
         self._refresh_all_plots(k)
 
     # ------------------------------------------------------------------
@@ -292,8 +384,8 @@ class GSBSApp:
         self.ax_raw.clear()
         self.ax_raw.imshow(data.T, aspect="auto", origin="lower")
         self.ax_raw.set_ylabel("Channels")
-        self.ax_raw.set_xlabel("Timepoints")
-        self.canvas_raw.draw()
+        self.ax_raw.set_title("Voxel Timeseries", fontsize=9)
+        self.canvas_ts.draw()
 
         self.ax_corrmat.clear()
         self.ax_corrmat.imshow(np.corrcoef(data), cmap="viridis",
@@ -308,43 +400,44 @@ class GSBSApp:
 
         # T-dist curve
         self.ax_tdist.clear()
-        self.ax_tdist.plot(obj.tdists, color="steelblue")
-        self.ax_tdist.axvline(x=k, color="red", linestyle="--", linewidth=1.2,
+        self.ax_tdist.plot(obj.tdists, color="#4fc3f7")
+        self.ax_tdist.axvline(x=k, color="#ef5350", linestyle="--", linewidth=1.2,
                               label=f"k = {k}")
         self.ax_tdist.set_xlabel("k (boundaries)")
         self.ax_tdist.set_ylabel("T-dist")
         self.ax_tdist.legend(fontsize=8)
 
-        # Correlation matrix with state rectangles
+        # Correlation matrix — use cached corrcoef, only redraws boundaries
         self.ax_corrmat.clear()
-        corr = np.corrcoef(obj.x)
-        self.ax_corrmat.imshow(corr, cmap="viridis", vmin=-1, vmax=1, aspect="equal")
+        self.ax_corrmat.imshow(self._corr_cache, cmap="viridis",
+                               vmin=-1, vmax=1, aspect="equal")
         self.ax_corrmat.set_ylabel("Timepoints")
         edges = np.concatenate(([0], bounds, [n_time]))
         for i in range(len(edges) - 1):
             x0, x1 = edges[i], edges[i + 1]
             rect = patches.Rectangle(
                 (x0, x0), x1 - x0, x1 - x0,
-                linewidth=1.5, edgecolor="red", facecolor="none")
+                linewidth=1.5, edgecolor="#ef5350", facecolor="none")
             self.ax_corrmat.add_patch(rect)
 
         # Raw timeseries
         self.ax_raw.clear()
         self.ax_raw.imshow(obj.x.T, aspect="auto", origin="lower")
         self.ax_raw.set_ylabel("Channels")
+        self.ax_raw.set_title("Voxel Timeseries", fontsize=9)
         for b in bounds:
-            self.ax_raw.axvline(x=b, color="red", linewidth=0.8)
+            self.ax_raw.axvline(x=b, color="#ef5350", linewidth=0.8)
 
         # State-averaged timeseries
         self.ax_state.clear()
         self.ax_state.imshow(self._state_timeseries(k).T, aspect="auto", origin="lower")
         self.ax_state.set_ylabel("Channels")
         self.ax_state.set_xlabel("Timepoints")
+        self.ax_state.set_title("State Activity Timeseries", fontsize=9)
         for b in bounds:
-            self.ax_state.axvline(x=b, color="red", linewidth=0.8)
+            self.ax_state.axvline(x=b, color="#ef5350", linewidth=0.8)
 
-        for canvas in (self.canvas_corrmat, self.canvas_tdist,
-                       self.canvas_raw, self.canvas_state):
+        for canvas in (self.canvas_corrmat, self.canvas_tdist, self.canvas_ts):
             canvas.draw()
 
     def _state_timeseries(self, k: int) -> np.ndarray:
@@ -363,13 +456,23 @@ class GSBSApp:
     # Helpers
     # ------------------------------------------------------------------
 
+    def _on_close(self) -> None:
+        if self._gsbs_running:
+            if not messagebox.askyesno(
+                "GSBS running",
+                "GSBS is still running. Closing will cancel the computation.\n\nClose anyway?",
+                icon="warning",
+            ):
+                return
+        self.root.destroy()
+
     def _status(self, msg: str) -> None:
         self.status_var.set(msg)
         self.root.update_idletasks()
 
 
 def main() -> None:
-    root = tk.Tk()
+    root = ttk.Window(themename="darkly")
     GSBSApp(root)
     root.mainloop()
 

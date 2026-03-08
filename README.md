@@ -1,36 +1,144 @@
-# GSBS_GUI
-A makeshift tkinter GUI for viewing results of the Greedy State Boundary Search algorithm from 
+# GSBS GUI
 
-[statesegmentation package](https://github.com/lgeerligs/statesegmentation)
+An interactive GUI for running and exploring results of the
+[Greedy State Boundary Search (GSBS)](https://github.com/lgeerligs/statesegmentation)
+algorithm, which segments fMRI timeseries data into discrete neural states.
 
-Has horrible implementation, but is convenient.
-I don't know what I'm doing and have no idea how to build a proper GUI. No elegance here.
+![screenshot placeholder](https://github.com/user-attachments/assets/74192d8d-0f8e-45fd-94a0-848ba51d13e4)
+
+---
 
 ## Requirements
-statesegmentation package needs to be installed
+
+- Python 3.10+
+- `tkinter` — included in the Python standard library.
+  On Ubuntu/Debian it ships as a separate system package:
+  ```bash
+  sudo apt-get install python3-tk
+  ```
+
+---
+
+## Installation
+
+### 1. Clone
+
+```bash
+git clone https://github.com/drgzkr/GSBS_GUI.git
+cd GSBS_GUI
+```
+
+### 2. Create a virtual environment
+
+```bash
+python3 -m venv .venv
+```
+
+Activate it:
+
+| Platform | Command |
+|----------|---------|
+| Linux / macOS | `source .venv/bin/activate` |
+| Windows PowerShell | `.venv\Scripts\Activate.ps1` |
+| Windows cmd.exe | `.venv\Scripts\activate.bat` |
+
+### 3. Install dependencies
+
+```bash
+pip install -r requirements.txt
+```
+
+---
 
 ## Usage
-Simply run
+
 ```bash
-python /path/to/your/script/run_gsbs_gui.py
+python run_gsbs_gui.py
 ```
-on your terminal
 
-## Features
-- Can perform GSBS if the path of a 2d numpy array of shape (ntimepoints,nchannels) is entered with the given parameters.
-- Can also display results of a saved GSBS object.
-- Lets you explore segmentation results from the whole search, plotting boundary locations and average state patterns.
-  - More specifically, lets you explore segmentation results not only of the best solution, but all solutions.
-  - Shows the time by time correlation matrix, time by channel timeseries data with the boundaries overlaid, and a time by channel state averaged timeseries data woth the boundaries overlaid.
-- If you have as many images as there are timepoints in your data with 1-1 correspondance, and the images are named 'n.jpg', can show images before and after each boudnary.
+### Workflow
 
-![image](https://github.com/user-attachments/assets/74192d8d-0f8e-45fd-94a0-848ba51d13e4)
+1. **Browse** to a `.npy` file containing a 2D array of shape
+   `(n_timepoints, n_channels)`.
+2. Click **Load ROI Data** to load and preview the correlation matrix and
+   raw timeseries.
+3. Set **kmax**, **finetune**, and the **Statewise detection** toggle.
+4. Click **Run GSBS** — runs in a background thread; the UI stays responsive.
+5. When done, drag the **k slider** to explore all solutions from k=1 to kmax:
+   - T-dist curve with the selected k marked
+   - Correlation matrix with state boundary boxes overlaid
+   - Raw voxel timeseries with boundary lines
+   - State-averaged timeseries with boundary lines
+6. To skip re-running: browse to a saved `.npy` GSBS object and click
+   **Load GSBS Object**.
+7. Click **Save GSBS Object** to persist the fitted result.
 
-# ToDo:
-- [ ] Fix figure scale problem for MacOs
-- [ ] Fix save gsbs object button
-- [ ] Expand input parameters
-- [ ] Fix needing to adjsut kmax when loading saved results
-- [ ] Show boundary strengths
-- [ ] add more to do's
-- [ ] Find someone who knows what they are doing for a proper version
+### Input data format
+
+```python
+import numpy as np
+# shape: (timepoints, channels/voxels)
+data = np.load("my_roi_data.npy")   # must be 2D
+```
+
+---
+
+## Development
+
+### Install dev dependencies
+
+```bash
+pip install -r requirements-dev.txt
+```
+
+### Run tests
+
+```bash
+pytest tests/
+```
+
+Tests are fully headless — no display server or `xvfb` needed.
+`conftest.py` patches `tkinter` and `matplotlib`'s TkAgg backend at the
+`sys.modules` level before any test module is collected.
+
+#### With coverage report
+
+```bash
+pytest tests/ --cov=run_gsbs_gui --cov-report=term-missing
+```
+
+### Project layout
+
+```
+run_gsbs_gui.py          main application (GSBSApp class)
+requirements.txt         runtime dependencies
+requirements-dev.txt     development / test dependencies
+tests/
+    conftest.py          headless mock setup (runs before collection)
+    fixtures.py          shared fixtures and fake GSBS object factory
+    test_state_timeseries.py   _state_timeseries numpy logic
+    test_validation.py         load_roi_data / load_gsbs_object validation
+    test_gsbs_done.py          _gsbs_done / _gsbs_error thread callbacks
+    test_slider.py             slider state and _on_slider callback
+```
+
+### CI (GitHub Actions example)
+
+```yaml
+- name: Run tests
+  run: |
+    pip install -r requirements-dev.txt
+    pytest tests/ --cov=run_gsbs_gui --cov-report=xml
+```
+
+No system `python3-tk` package is needed in CI because `conftest.py`
+intercepts the `import tkinter` statement via `sys.modules` before it
+reaches the C extension.
+
+---
+
+## Known limitations / TODO
+
+- Stimulus image viewer (before/after boundary frames) not yet re-implemented
+  in the reworked version.
+- macOS figure DPI scaling not specifically handled.
