@@ -4,7 +4,7 @@ An interactive GUI for running and exploring results of the
 [Greedy State Boundary Search (GSBS)](https://github.com/lgeerligs/statesegmentation)
 algorithm, which segments fMRI timeseries data into discrete neural states.
 
-![screenshot placeholder](https://github.com/user-attachments/assets/74192d8d-0f8e-45fd-94a0-848ba51d13e4)
+![GSBS GUI screenshot](assets/screenshot.png)
 
 ---
 
@@ -52,8 +52,19 @@ pip install -r requirements.txt
 
 ## Usage
 
+Two versions are provided:
+
+| File | Framework | Theme |
+|------|-----------|-------|
+| `run_gsbs_gui.py` | Standard `tkinter` / `ttk` | System default |
+| `run_gsbs_gui_ttkbs.py` | [`ttkbootstrap`](https://ttkbootstrap.readthedocs.io/) | Darkly (Bootstrap-dark) |
+
 ```bash
+# Classic version
 python run_gsbs_gui.py
+
+# Modern dark-themed version (recommended)
+python run_gsbs_gui_ttkbs.py
 ```
 
 ### Workflow
@@ -110,9 +121,15 @@ pytest tests/ --cov=run_gsbs_gui --cov-report=term-missing
 ### Project layout
 
 ```
-run_gsbs_gui.py          main application (GSBSApp class)
+run_gsbs_gui.py          classic ttk application (GSBSApp class)
+run_gsbs_gui_ttkbs.py    modern ttkbootstrap application (dark theme)
 requirements.txt         runtime dependencies
 requirements-dev.txt     development / test dependencies
+assets/
+    screenshot.png       GUI screenshot
+data/
+    example_roi_data.npy       synthetic 2D fMRI-like array (438×401)
+    example_GSBS_object.npy    pre-fitted GSBS result
 tests/
     conftest.py          headless mock setup (runs before collection)
     fixtures.py          shared fixtures and fake GSBS object factory
