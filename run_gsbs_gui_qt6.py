@@ -133,9 +133,8 @@ class GSBSApp(QMainWindow):
         self.path_edit.setPlaceholderText("Browse or type path…")
         row0.addWidget(self.path_edit, stretch=1)
 
-        self._btn(row0, "Browse",           self._browse_data)
-        self._btn(row0, "Load ROI Data",    self.load_roi_data)
-        self._btn(row0, "Load GSBS Object", self.load_gsbs_object)
+        self._btn(row0, "Browse",     self._browse_data)
+        self._btn(row0, "Load File",  self.load_file)
         vstack.addLayout(row0)
 
         # ── Row 1: parameters + run + save ────────────────────────────
@@ -339,38 +338,42 @@ class GSBSApp(QMainWindow):
     # Data I/O
     # ------------------------------------------------------------------
 
-    def load_roi_data(self) -> None:
+    def load_file(self) -> None:
+        """Load a .npy file and auto-detect whether it is a GSBS object or raw ROI data."""
         path = self.path_edit.text().strip()
         if not path:
             QMessageBox.warning(self, "No path", "Enter or browse to a .npy file first.")
             return
         try:
-            data = np.load(path, allow_pickle=True)
-            if data.ndim != 2:
-                raise ValueError(f"Expected 2D array, got shape {data.shape}")
-            self.roi_data = data
-            self._status(f"Loaded ROI data  shape={data.shape}")
-            self._plot_roi_data()
-        except Exception as exc:
-            QMessageBox.critical(self, "Load error", str(exc))
+            raw = np.load(path, allow_pickle=True)
 
-    def load_gsbs_object(self) -> None:
-        path = self.path_edit.text().strip()
-        if not path:
-            QMessageBox.warning(self, "No path", "Enter or browse to a .npy file first.")
-            return
-        try:
-            obj = np.load(path, allow_pickle=True).item()
-            if not hasattr(obj, "tdists") or not hasattr(obj, "all_bounds"):
-                raise ValueError("File does not look like a GSBS object.")
-            self.gsbs_object = obj
-            self._corr_cache = np.corrcoef(obj.x)
-            kmax   = len(obj.tdists) - 1
-            best_k = int(np.argmax(obj.tdists))
-            self.kmax_spin.setValue(kmax)
-            self._configure_slider(kmax, best_k)
-            self._status(f"Loaded GSBS object  kmax={kmax}  best k={best_k}")
-            self._refresh_all_plots(best_k)
+            # ── Try GSBS object first ──────────────────────────────────
+            try:
+                obj = raw.item()
+                if hasattr(obj, "tdists") and hasattr(obj, "all_bounds"):
+                    self.gsbs_object  = obj
+                    self.roi_data     = obj.x
+                    self._corr_cache  = np.corrcoef(obj.x)
+                    kmax   = len(obj.tdists) - 1
+                    best_k = int(np.argmax(obj.tdists))
+                    self.kmax_spin.setValue(kmax)
+                    self._configure_slider(kmax, best_k)
+                    self._status(f"Loaded GSBS object  kmax={kmax}  best k={best_k}")
+                    self._refresh_all_plots(best_k)
+                    return
+            except (ValueError, AttributeError):
+                pass
+
+            # ── Fall back to raw ROI data ──────────────────────────────
+            if raw.ndim != 2:
+                raise ValueError(f"Expected 2D array, got shape {raw.shape}")
+            self.roi_data    = raw
+            self.gsbs_object = None
+            self._corr_cache = None
+            self._clear_all_plots()
+            self._status(f"Loaded ROI data  shape={raw.shape}")
+            self._plot_roi_data()
+
         except Exception as exc:
             QMessageBox.critical(self, "Load error", str(exc))
 
@@ -481,6 +484,12 @@ class GSBSApp(QMainWindow):
     # ------------------------------------------------------------------
     # Plotting
     # ------------------------------------------------------------------
+
+    def _clear_all_plots(self) -> None:
+        for ax in (self.ax_corrmat, self.ax_tdist, self.ax_raw, self.ax_state):
+            ax.clear()
+        for canvas in (self.canvas_corrmat, self.canvas_tdist, self.canvas_ts):
+            canvas.draw()
 
     def _plot_roi_data(self) -> None:
         data = self.roi_data
