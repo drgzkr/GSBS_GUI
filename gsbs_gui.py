@@ -85,7 +85,7 @@ class GSBSApp(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("GSBS GUI")
-        self.setMinimumSize(1200, 820)
+        self.setMinimumSize(800, 600)
 
         self.roi_data:    np.ndarray | None = None
         self.gsbs_object                    = None
@@ -157,7 +157,7 @@ class GSBSApp(QMainWindow):
         self._btn(row0, "Load File",  self.load_file)
         vstack.addLayout(row0)
 
-        # ── Row 1: parameters + run + save ────────────────────────────
+        # ── Row 1: parameters + run ───────────────────────────────────
         row1 = QHBoxLayout()
         row1.setSpacing(6)
 
@@ -180,18 +180,21 @@ class GSBSApp(QMainWindow):
         self.run_btn.setObjectName("run_btn")
         self.run_btn.clicked.connect(self.run_gsbs)
         row1.addWidget(self.run_btn)
-
-        row1.addWidget(self._vline())
-
-        row1.addWidget(QLabel("Save as:"))
-        self.save_edit = QLineEdit("gsbs_result.npy")
-        self.save_edit.setFixedWidth(180)
-        row1.addWidget(self.save_edit)
-
-        self._btn(row1, "Browse",           self._browse_save)
-        self._btn(row1, "Save GSBS Object", self.save_gsbs_object)
-
+        row1.addStretch()
         vstack.addLayout(row1)
+
+        # ── Row 2: save ───────────────────────────────────────────────
+        row2 = QHBoxLayout()
+        row2.setSpacing(6)
+
+        row2.addWidget(QLabel("Save as:"))
+        self.save_edit = QLineEdit("gsbs_result.npy")
+        row2.addWidget(self.save_edit, stretch=1)
+
+        self._btn(row2, "Browse",           self._browse_save)
+        self._btn(row2, "Save GSBS Object", self.save_gsbs_object)
+
+        vstack.addLayout(row2)
         parent.addWidget(group)
 
     def _build_run_status_row(self, parent: QVBoxLayout) -> None:
@@ -250,7 +253,7 @@ class GSBSApp(QMainWindow):
         layout.setContentsMargins(2, 2, 2, 2)
 
         self.fig_corrmat, self.ax_corrmat = plt.subplots(
-            constrained_layout=True)
+            constrained_layout=True, figsize=(3, 3))
         self.fig_corrmat.patch.set_facecolor(_FIG_BG)
         self.ax_corrmat.set_facecolor(_FIG_BG)
         self.fig_corrmat.suptitle("Correlation Matrix", fontsize=9)
@@ -268,7 +271,7 @@ class GSBSApp(QMainWindow):
         layout = QVBoxLayout(frame)
         layout.setContentsMargins(2, 2, 2, 2)
 
-        self.fig_tdist, self.ax_tdist = plt.subplots(constrained_layout=True)
+        self.fig_tdist, self.ax_tdist = plt.subplots(constrained_layout=True, figsize=(4, 2))
         self.fig_tdist.patch.set_facecolor(_FIG_BG)
         self.ax_tdist.set_facecolor(_FIG_BG)
         self.fig_tdist.suptitle("T-dist Curve", fontsize=9)
@@ -287,7 +290,7 @@ class GSBSApp(QMainWindow):
         layout.setContentsMargins(2, 2, 2, 2)
 
         self.fig_ts, (self.ax_raw, self.ax_state) = plt.subplots(
-            2, 1, sharex=True, constrained_layout=True)
+            2, 1, sharex=True, constrained_layout=True, figsize=(4, 3))
         self.fig_ts.patch.set_facecolor(_FIG_BG)
         for ax in (self.ax_raw, self.ax_state):
             ax.set_facecolor(_FIG_BG)
