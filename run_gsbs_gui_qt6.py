@@ -116,16 +116,7 @@ class GSBSApp(QMainWindow):
 
         self._build_controls(vbox)
         self._build_run_status_row(vbox)
-
-        # Main area: corrmat (left) | right panel
-        h_split = QSplitter(Qt.Orientation.Horizontal)
-        h_split.setChildrenCollapsible(False)
-        vbox.addWidget(h_split, stretch=1)
-
-        self._build_corrmat_panel(h_split)
-        self._build_right_panel(h_split)
-        h_split.setSizes([480, 720])
-
+        self._build_plot_area(vbox)
         self.statusBar().showMessage("Ready.")
 
     def _build_controls(self, parent: QVBoxLayout) -> None:
@@ -199,6 +190,44 @@ class GSBSApp(QMainWindow):
         self.patience_label.hide()
         parent.addWidget(self.patience_label)
 
+    def _build_plot_area(self, parent: QVBoxLayout) -> None:
+        """
+        Layout (top→bottom, all resizable via splitters):
+
+          ┌─────────────────────┬─────────────────────┐
+          │  Correlation Matrix │  T-dist Curve        │  ← top_split (H)
+          └─────────────────────┴─────────────────────┘
+          │  Solution Explorer (slider + spinbox)       │  ← compact strip
+          ├─────────────────────────────────────────────┤
+          │  Voxel Timeseries        (full width)       │  ← ts panel
+          │  State Activity Timeseries (shared x)       │
+          └─────────────────────────────────────────────┘
+        """
+        v_split = QSplitter(Qt.Orientation.Vertical)
+        v_split.setChildrenCollapsible(False)
+        parent.addWidget(v_split, stretch=1)
+
+        # ── Top: corrmat | tdist side by side ─────────────────────────
+        top_split = QSplitter(Qt.Orientation.Horizontal)
+        top_split.setChildrenCollapsible(False)
+
+        self._build_corrmat_panel(top_split)
+        self._build_tdist_panel(top_split)
+        top_split.setSizes([500, 500])
+
+        v_split.addWidget(top_split)
+
+        # ── Middle: solution explorer ──────────────────────────────────
+        self._build_solution_explorer(v_split)
+
+        # ── Bottom: full-width stacked timeseries ──────────────────────
+        self._build_timeseries_panel(v_split)
+
+        # Give top section more room; timeseries get a solid share
+        v_split.setStretchFactor(0, 5)
+        v_split.setStretchFactor(1, 0)   # solution explorer: natural height
+        v_split.setStretchFactor(2, 3)
+
     def _build_corrmat_panel(self, splitter: QSplitter) -> None:
         frame  = QWidget()
         layout = QVBoxLayout(frame)
@@ -214,17 +243,12 @@ class GSBSApp(QMainWindow):
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         layout.addWidget(self.canvas_corrmat, stretch=1)
         layout.addWidget(NavigationToolbar2QT(self.canvas_corrmat, frame))
-
         splitter.addWidget(frame)
 
-    def _build_right_panel(self, h_splitter: QSplitter) -> None:
-        v_split = QSplitter(Qt.Orientation.Vertical)
-        v_split.setChildrenCollapsible(False)
-
-        # T-dist curve
-        tdist_frame  = QWidget()
-        tdist_layout = QVBoxLayout(tdist_frame)
-        tdist_layout.setContentsMargins(2, 2, 2, 2)
+    def _build_tdist_panel(self, splitter: QSplitter) -> None:
+        frame  = QWidget()
+        layout = QVBoxLayout(frame)
+        layout.setContentsMargins(2, 2, 2, 2)
 
         self.fig_tdist, self.ax_tdist = plt.subplots(tight_layout=True)
         self.fig_tdist.patch.set_facecolor(_FIG_BG)
@@ -232,17 +256,14 @@ class GSBSApp(QMainWindow):
         self.fig_tdist.suptitle("T-dist Curve", fontsize=9)
 
         self.canvas_tdist = FigureCanvasQTAgg(self.fig_tdist)
-        tdist_layout.addWidget(self.canvas_tdist, stretch=1)
-        tdist_layout.addWidget(NavigationToolbar2QT(self.canvas_tdist, tdist_frame))
-        v_split.addWidget(tdist_frame)
+        layout.addWidget(self.canvas_tdist, stretch=1)
+        layout.addWidget(NavigationToolbar2QT(self.canvas_tdist, frame))
+        splitter.addWidget(frame)
 
-        # Solution explorer (compact, natural height)
-        self._build_solution_explorer(v_split)
-
-        # Stacked timeseries (shared x-axis)
-        ts_frame  = QWidget()
-        ts_layout = QVBoxLayout(ts_frame)
-        ts_layout.setContentsMargins(2, 2, 2, 2)
+    def _build_timeseries_panel(self, splitter: QSplitter) -> None:
+        frame  = QWidget()
+        layout = QVBoxLayout(frame)
+        layout.setContentsMargins(2, 2, 2, 2)
 
         self.fig_ts, (self.ax_raw, self.ax_state) = plt.subplots(
             2, 1, sharex=True, tight_layout=True)
@@ -256,15 +277,9 @@ class GSBSApp(QMainWindow):
         self.ax_state.set_xlabel("Timepoints")
 
         self.canvas_ts = FigureCanvasQTAgg(self.fig_ts)
-        ts_layout.addWidget(self.canvas_ts, stretch=1)
-        ts_layout.addWidget(NavigationToolbar2QT(self.canvas_ts, ts_frame))
-        v_split.addWidget(ts_frame)
-
-        v_split.setStretchFactor(0, 3)   # T-dist: larger
-        v_split.setStretchFactor(1, 0)   # Solution explorer: natural height
-        v_split.setStretchFactor(2, 2)   # Timeseries
-
-        h_splitter.addWidget(v_split)
+        layout.addWidget(self.canvas_ts, stretch=1)
+        layout.addWidget(NavigationToolbar2QT(self.canvas_ts, frame))
+        splitter.addWidget(frame)
 
     def _build_solution_explorer(self, parent: QSplitter) -> None:
         group = QGroupBox("Solution Explorer")
