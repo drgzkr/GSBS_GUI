@@ -1,7 +1,10 @@
 numpy>=1.24
 matplotlib>=3.7
-statesegmentation
-tqdm
 scipy
-ttkbootstrap
+tqdm
 PyQt6
+# NIfTI import, Schaefer atlas, fsaverage surfaces
+nilearn>=0.12
+nibabel
+# fork with fast_GSBS (bit-identical to GSBS, 5-10x faster); not on PyPI
+statesegmentation @ git+https://github.com/drgzkr/statesegmentation.git

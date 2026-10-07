@@ -1,0 +1,28 @@
+{
+  "example": "narratives-sherlock",
+  "import": {
+    "n_rois": 400,
+    "yeo_networks": 17,
+    "tr": 1.5,
+    "confounds": null,
+    "detrend": true,
+    "high_pass": null,
+    "zscore_parcels": false
+  },
+  "n_time": 724,
+  "fitted": [
+    "1",
+    "167",
+    "168",
+    "169",
+    "195",
+    "196",
+    "197",
+    "2",
+    "3",
+    "44",
+    "45",
+    "49",
+    "whole_brain"
+  ]
+}

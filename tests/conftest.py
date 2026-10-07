@@ -1,31 +1,21 @@
-"""
-Headless test setup.
+"""Headless Qt for the GUI tests."""
 
-Patches tkinter, the TkAgg backend, and statesegmentation at the
-sys.modules level *before* run_gsbs_gui is imported anywhere, so tests
-run without a display server or the actual statesegmentation package.
-
-Must live at module scope (not inside a fixture) to fire during
-pytest's collection phase.
-"""
-
+import os
 import sys
-import unittest.mock as mock
+from pathlib import Path
 
-import matplotlib
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+import matplotlib  # noqa: E402
+
 matplotlib.use("Agg")
 
-# Prevent the app's `matplotlib.use("TkAgg")` from switching away from Agg.
-mock.patch("matplotlib.use", return_value=None).start()
+import pytest  # noqa: E402
 
-_tk_mock = mock.MagicMock()
-for _mod in (
-    "tkinter",
-    "tkinter.ttk",
-    "tkinter.filedialog",
-    "tkinter.messagebox",
-    "matplotlib.backends.backend_tkagg",
-    "statesegmentation",
-    "statesegmentation.gsbs",
-):
-    sys.modules.setdefault(_mod, _tk_mock)
+
+@pytest.fixture(scope="session")
+def qapp():
+    from PyQt6.QtWidgets import QApplication
+    app = QApplication.instance() or QApplication([])
+    yield app
