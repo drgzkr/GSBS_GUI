@@ -310,7 +310,8 @@ def _zscore_rows(a: np.ndarray) -> np.ndarray:
     return np.divide(a, sd, out=np.zeros_like(a), where=sd > 0)
 
 
-def _load_confounds(path: str, n_time: int) -> np.ndarray:
+def _load_confounds(path: str, n_time: int) -> tuple[np.ndarray, list]:
+    """Confound regressors and the names of the columns used."""
     import pandas as pd
     df = pd.read_csv(path, sep="\t")
     cols = [c for c in DEFAULT_CONFOUNDS if c in df.columns]
@@ -318,7 +319,7 @@ def _load_confounds(path: str, n_time: int) -> np.ndarray:
         cols = list(df.select_dtypes("number").columns)
     if len(df) != n_time:
         raise ValueError(f"Confounds file has {len(df)} rows; the NIfTI has {n_time} volumes.")
-    return df[cols].fillna(0).to_numpy(float)
+    return df[cols].fillna(0).to_numpy(float), cols
 
 
 def run_import(queue, params: ImportParams) -> None:
@@ -359,9 +360,10 @@ def _import(queue, p: ImportParams) -> None:
     voxels = data[mask][order]                              # (V, T)
     del data
 
+    conf_cols = []
     if p.confounds or p.detrend or p.high_pass:
         stage("Cleaning (confounds / detrend / high-pass)", 0.45)
-        conf = _load_confounds(p.confounds, n_time) if p.confounds else None
+        conf, conf_cols = _load_confounds(p.confounds, n_time) if p.confounds else (None, [])
         if p.high_pass and not tr:
             raise ValueError("High-pass filtering needs the TR.")
         for a in range(0, len(voxels), 20000):
@@ -407,6 +409,7 @@ def _import(queue, p: ImportParams) -> None:
         "preprocessing": {
             "confounds": p.confounds, "detrend": p.detrend, "high_pass": p.high_pass,
             "voxel_zscore": True, "zscore_parcels": p.zscore_parcels,
+            "confound_columns": conf_cols if (p.confounds or p.detrend or p.high_pass) else [],
         },
         "voxels_per_parcel": counts.tolist(),
         "missing_parcels": (np.flatnonzero(~present) + 1).tolist(),

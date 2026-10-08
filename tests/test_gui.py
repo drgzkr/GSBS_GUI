@@ -302,3 +302,29 @@ class TestReadyDemoMenu:
             _pump(qapp, 0.1)
         assert win.session is not None and win.gsbs_object is not None
         assert win.stimulus.has_content and len(win.session.summary()) == 13
+
+
+class TestExportDialog:
+
+    def test_export_runs_and_verifies(self, win, qapp, tmp_path):
+        from gsbs_export_dialog import ExportDialog
+        win.load_demo(fitted=True)
+        dlg = ExportDialog(win)
+        assert dlg.cfg is not None and dlg.export_btn.isEnabled()
+        dlg.dir_edit.setText(str(tmp_path / "pkg"))
+        dlg.export()
+        deadline = time.monotonic() + 300
+        while not dlg.open_btn.isEnabled() and time.monotonic() < deadline:
+            _pump(qapp, 0.1)
+        log = dlg.log.toPlainText()
+        assert "✓ Optimal number of states reproduced" in log, log[-2000:]
+        assert "Methods" in dlg.methods_view.toPlainText()
+        assert (tmp_path / "pkg" / "figures" / "segmentation.png").exists()
+        dlg.close()
+
+    def test_needs_a_result(self, win):
+        from gsbs_export_dialog import ExportDialog
+        win.load_demo(fitted=False)
+        dlg = ExportDialog(win)
+        assert dlg.cfg is None and not dlg.export_btn.isEnabled()
+        dlg.close()

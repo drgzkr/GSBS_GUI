@@ -273,21 +273,19 @@ class _Prepare(QObject):
 # ---------------------------------------------------------------------------
 
 class _OverlapWorker(QObject):
-    """Overlap of every ROI's best boundaries with one reference at each delay."""
+    """Overlap of every ROI's best boundaries with one reference at each delay
+    (gsbs_analysis.roi_overlap_map, the same code the exported scripts run)."""
     progress = pyqtSignal(int, int)
     done = pyqtSignal(object)
 
-    def __init__(self, refs, rois, n_time, n_perm):
+    def __init__(self, session, refs, delays, n_perm):
         super().__init__()
-        self.refs, self.rois, self.n_time, self.n_perm = refs, rois, n_time, n_perm
+        self.session, self.refs, self.delays, self.n_perm = session, refs, delays, n_perm
 
     def run(self):
-        out = []
-        for i, (roi, bounds) in enumerate(self.rois):
-            out.append((roi, ov.grid_overlap(self.refs, bounds, self.n_time,
-                                             n_perm=self.n_perm, seed=roi)))
-            self.progress.emit(i + 1, len(self.rois))
-        self.done.emit(out)
+        import gsbs_analysis as A
+        self.done.emit(A.roi_overlap_map(self.session, self.refs, self.delays, self.n_perm,
+                                         progress=self.progress.emit))
 
 
 class BrainPanel(QTabWidget):
@@ -972,19 +970,18 @@ class BrainPanel(QTabWidget):
         else:
             refs, delays = [np.asarray(ref["bounds"], int)], None
         fitted = sorted(k for k in s.summary() if isinstance(k, int))
-        excluded = [t for t in fitted if s.summary()[t].at_limit]
-        rois = [(t, s.best_bounds(t)) for t in fitted if t not in excluded]
+        rois = [t for t in fitted if not s.summary()[t].at_limit]
         if not rois:
             self.ovl_header.setText("No fitted ROIs yet: run a batch from the session panel.")
             return
-        self._ovl_pending = {"ref": ref["label"], "delays": delays, "excluded": excluded}
+        self._ovl_pending = {"ref": ref["label"], "ref_config": ref.get("config", {})}
         self.ovl_progress.setRange(0, len(rois))
         self.ovl_progress.setValue(0)
         self.ovl_progress.show()
         self.ovl_btn.setEnabled(False)
         self.ovl_header.setText(f"Computing {len(rois)} ROIs \u00d7 {len(refs)} "
                                 f"delay{'s' if len(refs) != 1 else ''}\u2026")
-        self._ovl_worker = _OverlapWorker(refs, rois, s.n_time, 1000)
+        self._ovl_worker = _OverlapWorker(s, refs, delays, 1000)
         self._ovl_thread = QThread(self)
         self._ovl_worker.moveToThread(self._ovl_thread)
         self._ovl_thread.started.connect(self._ovl_worker.run)
@@ -999,19 +996,15 @@ class BrainPanel(QTabWidget):
         self.ovl_progress.hide()
         self.ovl_btn.setEnabled(True)
 
-    def _ovl_done(self, results) -> None:
+    def _ovl_done(self, res: dict) -> None:
         meta = self._ovl_pending
-        rois = np.array([r for r, _ in results])
-        best = np.array([g.best for _, g in results])
-        grid = meta["delays"] is not None and len(meta["delays"]) > 1
-        p = np.array([g.p_best if grid else g.p[0] for _, g in results])
+        grid = res["grid"]
         self._ovl = {
-            **meta, "rois": rois,
-            "or": np.array([g.or_[g.best] if grid else g.or_[0] for _, g in results]),
-            "best_delay": (np.array(meta["delays"])[best] if meta["delays"] is not None
-                           else np.full(len(rois), np.nan)),
-            "p": p, "q": ov.fdr_bh(p), "grid": grid,
-            "or_grid": np.array([g.or_ for _, g in results]),
+            **meta, "result": res, "rois": np.array(res["rois"], int), "excluded": res["excluded"],
+            "delays": res["delays"], "or": np.array(res["or"]),
+            "best_delay": np.array([np.nan if d is None else d for d in res["best_delay"]], float),
+            "p": np.array(res["p"]), "q": np.array(res["q"]), "grid": grid,
+            "or_grid": np.array(res["or_grid"]),
         }
         has_delay = grid
         model = self.ovl_show.model()

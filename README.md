@@ -259,6 +259,60 @@ settings.
 - **Export:** a CSV with one row per state (TRs, cluster) and an `.npz` with the cluster
   patterns, labels and transition counts.
 
+### Analysis packages: replication scripts, figures and manuscript text
+
+**File › Export analysis package…** (Ctrl+E) turns the analysis on screen into a folder you can
+share. Running that folder reproduces the results without the GUI. The package is built from
+what the GUI holds:
+- the data, with its import settings;
+- every fit in the session;
+- the solution shown;
+- the stimulus settings;
+- the last per-ROI overlap map;
+- the current state clustering.
+
+```
+<name>_analysis/
+    README.md, requirements.txt (pinned versions), analysis_config.json (every setting)
+    run_all.py                         python run_all.py --workers 4
+    toolkit/                           a copy of the exact code the GUI used
+    scripts/01_prepare_data.py         download / NIfTI import
+    scripts/02_fit_gsbs.py             GSBS fits (reused if parameters match; --refit)
+    scripts/03_analyses.py             every reported number -> results/results.json
+    scripts/04_figures.py              runs figures/fig_*.py
+    scripts/05_report.py               manuscript text and captions
+    figures/fig_<name>.py              one script per figure, with .png/.pdf/.svg and _caption.md
+    manuscript/methods.md, results.md  and .tex versions (one sentence per line), figures.tex,
+                                       references.bib
+```
+
+The export writes the package and runs it, reusing the GUI's fits. It then checks that the
+package reproduces the GUI's numbers (the optimal number of states, per-ROI overlap, cluster
+labels) and previews the text and figures. The GUI and the scripts call the same functions
+(`gsbs_analysis`) with the same random seeds. Running the Sherlock demo package from scratch,
+with download, import and all 13 fits redone, reproduced every number in `results.json`
+exactly, and gave identical Methods and Results text.
+
+Figures, depending on the analysis:
+- the segmentation (t-distance, correlation matrix with states, timeseries with boundaries
+  and stimulus boundaries);
+- the strongest boundary on the surface;
+- the optimal number of states per ROI;
+- stimulus–neural boundary overlap with its null distribution;
+- the per-ROI overlap map with best HRF delays and network means;
+- the state clusters with their timeline and transitions.
+
+The Methods and Results text is written from the configuration and the results:
+- Methods are in the past tense and passive voice, with every parameter that was used and
+  the original method papers cited.
+- Results are in the past tense, citing figures in order, and give each statistic with its
+  test, value, p, correction and n.
+- Captions say first what each figure shows, then what to notice.
+- The text uses British spelling and no em dashes.
+- Information the tool cannot know is marked `[TODO: ...]` (`\todo{}` in LaTeX). That
+  includes participants, acquisition, how ROIs were selected, why a non-optimal solution was
+  shown, and the code repository.
+
 #### Session folder
 
 ```
@@ -363,6 +417,11 @@ gsbs_overlap.py              boundary overlap (O, E, OA, OR, permutation p)
 gsbs_stimulus.py             transcripts on the scan, stimulus boundaries, event files
 gsbs_stimulus_panel.py       Stimulus panel (transcript by state, overlap readout)
 gsbs_overlap_window.py       Boundary overlap window (pairs, all ROIs, ROI map)
+gsbs_analysis.py             analysis pipeline shared by the GUI and exported scripts
+gsbs_figures.py              publication figures (matplotlib, no GUI)
+gsbs_report.py               Methods/Results text, captions and references
+gsbs_export.py               analysis package writer (scripts, toolkit copy, runner)
+gsbs_export_dialog.py        Export dialog: config from the GUI, run, verify, preview
 gsbs_stimuli_viewer.py       standalone stimulus boundary viewer popup
 requirements.txt             runtime dependencies
 requirements-dev.txt         development / test dependencies
@@ -390,6 +449,7 @@ tests/
     test_brain.py            Schaefer annotations, surface rendering and picking
     test_clusters.py         clustering recovery, silhouette noise scoring, transitions
     test_overlap.py          overlap formulas, tolerance, shuffles, transcripts, event files
+    test_export.py           generated text conventions; package replicates the GUI from scratch
 ```
 
 ---

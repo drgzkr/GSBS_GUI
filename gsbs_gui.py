@@ -424,6 +424,7 @@ class GSBSApp(QMainWindow):
                 ("&Import NIfTI\u2026", self.import_nifti, "Ctrl+I"),
                 ("Open &session folder\u2026", self._browse_session, "Ctrl+Shift+O"),
                 ("&Save result\u2026", self.save_gsbs_object, "Ctrl+S"),
+                ("&Export analysis package (scripts, figures, Methods/Results)\u2026", self.export_package, "Ctrl+E"),
                 (None, None, None),
                 ("&Quit", self.close, "Ctrl+Q")):
             if text is None:
@@ -837,12 +838,19 @@ class GSBSApp(QMainWindow):
         if times is not None and len(times) and tr:
             st = self.stimulus.settings()
             refs.append({"label": f"Stimulus: {st['label'].lower()}", "kind": "stimulus",
-                         "times": np.asarray(times, float), "tr": tr, "delay": st["delay_s"]})
+                         "times": np.asarray(times, float), "tr": tr, "delay": st["delay_s"],
+                         "config": {"kind": "stimulus", "boundaries": st["kind"],
+                                    "label": st["label"], "pause_s": st["pause_s"]}})
         if self.session is not None and WHOLE_BRAIN in self.session.summary():
             s = self.session.summary()[WHOLE_BRAIN]
             refs.append({"label": f"Whole brain (best, {s.nstates} states)", "kind": "neural",
-                         "bounds": self.session.best_bounds(WHOLE_BRAIN)})
+                         "bounds": self.session.best_bounds(WHOLE_BRAIN),
+                         "config": {"kind": "neural", "target": WHOLE_BRAIN}})
         return refs
+
+    def export_package(self) -> None:
+        from gsbs_export_dialog import ExportDialog
+        ExportDialog(self).exec()
 
     def open_overlap(self) -> None:
         from gsbs_overlap_window import OverlapWindow
